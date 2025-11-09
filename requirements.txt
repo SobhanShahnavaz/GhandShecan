@@ -1,0 +1,24 @@
+# Telegram
+aiogram
+
+# async HTTP for calling Marzban API (if needed)
+aiohttp
+requests
+
+# env
+python-dotenv
+
+# ORM / DB
+SQLAlchemy
+databases          # برای async DB access (اختیاری با SQLAlchemy async)
+aiosqlite
+# logging
+loguru
+
+# utils
+pydantic          # مدل‌سازی و اعتبارسنجی داده
+python-dateutil  # تاریخ/زمان
+
+# dev (اختیاری)
+pytest
+black
