@@ -1,11 +1,12 @@
 from aiogram import Router, types, F
 from app.keyboards.main_menu import main_menu_keyboard
 from app.services import marzban_api
-from app.services.database import get_marzban_accounts_by_user, get_user_id
+from app.services.database import get_marzban_accounts_by_user, get_user_id, add_order
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+import os
 
 router = Router()
-
+ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
 
 @router.callback_query(F.data == "main_menu")
 async def show_main_menu(callback: types.CallbackQuery):
@@ -75,6 +76,30 @@ async def handle_menu_selection(callback: types.CallbackQuery):
     elif data == "referrals":
         await callback.answer("👥 بخش زیرمجموعه‌گیری به‌زودی می‌آید!", show_alert=True)
     
+    elif data == "send_receipt":
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📤 ارسال رسید", callback_data="waiting_for_receipt")],
+            [InlineKeyboardButton(text="❌ منصرف شدم", callback_data="cancel_payment")]
+        ])
+
+        await callback.message.answer(
+            "💳 لطفاً یکی از گزینه‌های زیر را انتخاب کنید:",
+            reply_markup=keyboard
+        )
+        await callback.answer()
+
+    elif data == "cancel_payment":
+        await callback.message.answer("✅ عملیات خرید لغو شد.\nمی‌تونی هر زمان خواستی دوباره از منوی خرید اقدام کنی.")
+        await callback.answer()
+    
+    elif data == "waiting_for_receipt":
+        await callback.message.answer(
+            "📸 لطفاً تصویر رسید پرداخت خود را ارسال کنید.\n\n"
+            "در صورت لغو، از منوی اصلی گزینه‌ی دیگری را انتخاب کنید."
+        )
+        await callback.answer()
+
+
     elif data.startswith("show_acc_"):
         panel_username = data.replace("show_acc_", "")
         telegram_id = callback.from_user.id
