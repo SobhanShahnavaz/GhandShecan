@@ -40,6 +40,22 @@ async def init_db():
         """)
         await db.commit()
 
+        # جدول سفارش‌ها (پرداخت‌ها)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_user_id INTEGER,
+                plan_name TEXT,
+                price INTEGER,
+                payment_proof_file_id TEXT,
+                status TEXT DEFAULT 'pending',
+                created_at TEXT,
+                FOREIGN KEY (telegram_user_id) REFERENCES telegram_users(id)
+            )
+        """)
+
+        await db.commit()
+
 # 🧩 کاربران تلگرام
 async def add_user(telegram_id: int, username: str, first_name: str,
                    last_name: str, phone_number: str, register_date: str | None):
@@ -125,4 +141,62 @@ async def delete_marzban_account(panel_username: str):
     """حذف یک حساب مرزبان"""
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("DELETE FROM marzban_accounts WHERE panel_username = ?", (panel_username,))
+        await db.commit()
+
+# 🧾 جدول سفارش‌ها (پرداخت‌ها)
+
+async def add_order(telegram_user_id: int, plan_name: str, price: int, payment_proof_file_id: str):
+    """افزودن سفارش جدید (بعد از اینکه کاربر رسید ارسال کرد)"""
+    from datetime import datetime
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            INSERT INTO orders (telegram_user_id, plan_name, price, payment_proof_file_id, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            telegram_user_id,
+            plan_name,
+            price,
+            payment_proof_file_id,
+            "pending",
+            datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        ))
+        await db.commit()
+
+
+async def get_pending_orders():
+    """دریافت همه سفارش‌های در حالت pending (برای ادمین)"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute("""
+            SELECT * FROM orders WHERE status = 'pending' ORDER BY created_at DESC
+        """)
+        rows = await cursor.fetchall()
+        return rows
+
+
+async def get_orders_by_user(telegram_user_id: int):
+    """دریافت تمام سفارش‌های یک کاربر خاص"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute("""
+            SELECT * FROM orders WHERE telegram_user_id = ? ORDER BY created_at DESC
+        """, (telegram_user_id,))
+        rows = await cursor.fetchall()
+        return rows
+
+
+async def get_order_by_id(order_id: int):
+    """دریافت اطلاعات یک سفارش خاص"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute("SELECT * FROM orders WHERE id = ?", (order_id,))
+        row = await cursor.fetchone()
+        return row
+
+
+async def update_order_status(order_id: int, new_status: str):
+    """به‌روزرسانی وضعیت سفارش (مثلاً به approved یا rejected)"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            UPDATE orders
+            SET status = ?
+            WHERE id = ?
+        """, (new_status, order_id))
         await db.commit()
