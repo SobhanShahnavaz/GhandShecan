@@ -7,7 +7,10 @@ from dotenv import load_dotenv
 import os
 from loguru import logger
 
-from app.handlers import start , menu 
+from app.handlers import start , menu , payment_receipt
+
+
+
 from app.services.database import init_db
 
 # Load environment variables
@@ -32,7 +35,7 @@ async def main():
     # Register handlers
     dp.include_router(start.router)
     dp.include_router(menu.router)
-    
+    dp.include_router(payment_receipt.router)
 
 
     logger.info("🤖 Bot started successfully...")
