@@ -1,7 +1,8 @@
 from aiogram import Router, types, F
 from app.keyboards.main_menu import main_menu_keyboard
 from app.services import marzban_api
-from app.services.database import get_marzban_username, set_marzban_username
+from app.services.database import get_marzban_accounts_by_user, get_user_id
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 router = Router()
 
@@ -23,66 +24,37 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         await callback.answer("🛍 بخش خرید کانفیگ در حال ساخت است...", show_alert=True)
 
     elif data == "my_configs":
-        tg_id = callback.from_user.id
-        mb_user = await get_marzban_username(tg_id)
+        telegram_id = callback.from_user.id
+        user_id = await get_user_id(telegram_id)
 
-        if not mb_user:
-            await callback.message.answer(
-                "⚠️ برای این حساب، نام کاربری پنل در دیتابیس یافت نشد.\n"
-                "لطفاً با پشتیبانی تماس بگیر تا تنظیم شود."
-            )
-            await callback.answer()
+        if not user_id:
+            await callback.message.answer("⚠️ ابتدا باید ثبت‌نام کنید.")
             return
 
-        await callback.message.answer("⏳ درحال دریافت اطلاعات از پنل ...")
-        user_data = await marzban_api.get_user_by_username(mb_user)
-
-        if not user_data:
-            await callback.message.answer(
-                "⚠️ کاربری با این نام در پنل پیدا نشد یا ارتباط برقرار نشد."
-            )
-            await callback.answer()
+        accounts = await get_marzban_accounts_by_user(user_id)
+        if not accounts:
+            await callback.message.answer("❌ هیچ حسابی برای شما ثبت نشده است.")
             return
 
-        # ساخت پیام خلاصه کاربر
-        username = user_data.get("username")
-        status = user_data.get("status")
-        used_bytes = user_data.get("used_traffic", 0) or 0
-        expire_ts = user_data.get("expire")
+        # ساخت کیبورد اینلاین از حساب‌ها
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+        for acc in accounts:
+            username = acc[2]  # panel_username
+            status = acc[3] or "unknown"
+            icon = "🟢" if status == "active" else "🔴"
+            keyboard.inline_keyboard.append([
+                InlineKeyboardButton(
+                    text=f"{icon} {username}",
+                    callback_data=f"show_acc_{username}"
+                )
+            ])
 
-        # تبدیل بایت به گیگابایت
-        used_gb = used_bytes / (1024 ** 3)
-        used_text = f"{used_gb:.2f} GB"
-
-        # محاسبه روزهای باقی‌مانده
-        from datetime import datetime, timedelta
-        if expire_ts:
-            expire_date = datetime.utcfromtimestamp(expire_ts)
-            remaining_days = (expire_date - datetime.utcnow()).days
-            if remaining_days < 0:
-                expire_text = "⛔ منقضی شده"
-            elif remaining_days == 0:
-                expire_text = "⚠️ کمتر از ۱ روز"
-            else:
-                expire_text = f"{remaining_days} روز باقی‌مانده"
-        else:
-            expire_text = "نامشخص"
-
-        # استخراج Subscription Link (در JSON با کلید 'subscription_url' یا 'subscription')
-        sub_link = user_data.get("subscription_url") or user_data.get("subscription") or "⛔ لینک اشتراک موجود نیست"
-
-        # ساخت پیام نهایی
-        lines = [
-            f"👤 <b>{username}</b>",
-            f"🔸 وضعیت: {status}",
-            f"📦 مصرف: {used_text}",
-            f"⏳ انقضا: {expire_text}",
-            "\n🔗 لینک اشتراک:",
-            f"{sub_link}"
-        ]
-
-        await callback.message.answer("\n".join(lines), parse_mode="HTML")
+        await callback.message.answer(
+            "🔰 حساب مورد نظر را انتخاب کنید:",
+            reply_markup=keyboard
+        )
         await callback.answer()
+
 
 
     elif data == "test_account":
@@ -102,3 +74,50 @@ async def handle_menu_selection(callback: types.CallbackQuery):
 
     elif data == "referrals":
         await callback.answer("👥 بخش زیرمجموعه‌گیری به‌زودی می‌آید!", show_alert=True)
+    
+    elif data.startswith("show_acc_"):
+        panel_username = data.replace("show_acc_", "")
+        telegram_id = callback.from_user.id
+        user_id = await get_user_id(telegram_id)
+
+        accounts = await get_marzban_accounts_by_user(user_id)
+        account = next((a for a in accounts if a[2] == panel_username), None)
+
+        if not account:
+            await callback.message.answer("⚠️ حساب مورد نظر یافت نشد.")
+            return
+
+        status = account[3] or "نامشخص"
+        expire_ts = account[4]
+        used_traffic = account[5] or 0
+        subscription_url = account[6] or "⛔ لینک اشتراک موجود نیست"
+
+        # تبدیل بایت به گیگابایت
+        used_gb = used_traffic / (1024 ** 3)
+        used_text = f"{used_gb:.2f} GB"
+
+        # محاسبه روزهای باقی‌مانده
+        from datetime import datetime
+        if expire_ts:
+            expire_date = datetime.utcfromtimestamp(expire_ts)
+            remaining_days = (expire_date - datetime.utcnow()).days
+            if remaining_days < 0:
+                expire_text = "⛔ منقضی شده"
+            elif remaining_days == 0:
+                expire_text = "⚠️ کمتر از ۱ روز"
+            else:
+                expire_text = f"{remaining_days} روز باقی‌مانده"
+        else:
+            expire_text = "نامشخص"
+
+        text = (
+            f"👤 <b>{panel_username}</b>\n"
+            f"🔸 وضعیت: {status}\n"
+            f"📦 مصرف: {used_text}\n"
+            f"⏳ انقضا: {expire_text}\n\n"
+            f"🔗 <b>لینک اشتراک:</b>\n"
+            f"{subscription_url}"
+        )
+
+        await callback.message.answer(text, parse_mode="HTML")
+        await callback.answer()
