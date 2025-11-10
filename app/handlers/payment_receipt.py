@@ -3,7 +3,7 @@
 from aiogram import Router, types
 from datetime import datetime
 import os
-
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from app.services.database import add_order, get_user_id
 
 router = Router()
@@ -46,12 +46,21 @@ async def handle_payment_receipt(message: types.Message):
 
     try:
         # ارسال عکس رسید برای مدیر
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+        InlineKeyboardButton(text="✅ تأیید پرداخت", callback_data=f"order_approve_{user_id}"),
+        InlineKeyboardButton(text="❌ رد پرداخت", callback_data=f"order_reject_{user_id}")
+        ]
+        ])
+
         await message.bot.send_photo(
             chat_id=ADMIN_ID,
             photo=file_id,
             caption=caption,
-            parse_mode="HTML"
+            parse_mode="HTML",
+            reply_markup=keyboard
         )
+
         await message.answer("✅ رسید شما با موفقیت ارسال شد و در انتظار بررسی مدیر است.")
     except Exception as e:
         await message.answer("⚠️ خطایی در ارسال رسید به مدیر رخ داد.")
