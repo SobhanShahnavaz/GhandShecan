@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 import os
 from loguru import logger
 
-from app.handlers import start , menu , payment_receipt
+from app.handlers import start , menu , payment_receipt, admin_orders
 
 
 
@@ -35,7 +35,10 @@ async def main():
     # Register handlers
     dp.include_router(start.router)
     dp.include_router(menu.router)
+   
     dp.include_router(payment_receipt.router)
+    dp.include_router(admin_orders.router)
+    
 
 
     logger.info("🤖 Bot started successfully...")

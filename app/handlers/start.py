@@ -51,13 +51,17 @@ async def start_command(message: types.Message):
     user_id = message.from_user.id
     user = await get_user(user_id)
 
-    # بررسی عضویت در کانال (فقط اگر تعریف شده)
     if REQUIRED_CHANNEL:
-        if not await is_user_joined(user_id):
-            await message.answer(
-                "👋 سلام!\nبرای استفاده از ربات، ابتدا در کانال زیر عضو شو 👇",
-                reply_markup=join_keyboard(REQUIRED_CHANNEL)
-            )
+        try:
+            member = await message.bot.get_chat_member(chat_id=REQUIRED_CHANNEL, user_id=user_id)
+            if member.status not in ["member", "administrator", "creator"]:
+                await message.answer(
+                    "👋 سلام!\nبرای استفاده از ربات، ابتدا در کانال زیر عضو شو 👇",
+                    reply_markup=join_keyboard(REQUIRED_CHANNEL)
+                )
+                return
+        except Exception:
+            await message.answer("⚠️ خطا در بررسی عضویت، بعداً دوباره تلاش کن.")
             return
 
     # اگر کاربر قبلاً ثبت شده
@@ -92,7 +96,6 @@ async def callback_check_join(callback: types.CallbackQuery):
     try:
         member = await bot.get_chat_member(chat_id=REQUIRED_CHANNEL, user_id=user.id)
         if member.status in ("member", "administrator", "creator"):
-            await set_user_joined(user.id, True)
             await callback.answer("✅ عضویت شما تایید شد!", show_alert=True)
             await callback.message.delete()
 

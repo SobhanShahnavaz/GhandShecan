@@ -131,15 +131,58 @@ async def get_user_by_username(username: str):
             print(f"🔥 Exception in get_user_by_username: {e}")
             return None
 
+async def create_user_in_marzban(username: str, data_limit_gb: int, expire_days: int):
+    """ساخت یوزر جدید در پنل مرزبان"""
+    token = await _get_valid_token()
+    if not token:
+        raise ValueError("❌ نتوانستم توکن مرزبان را بگیرم.")
+
+    expire_timestamp = int((datetime.utcnow() + timedelta(days=expire_days)).timestamp())
+    data_limit_bytes = data_limit_gb * 1024 * 1024 * 1024
+
+    payload = {
+        "status": "active",
+        "username": username,
+        "note": "",
+        "data_limit": data_limit_bytes,
+        "data_limit_reset_strategy": "no_reset",
+        "expire": expire_timestamp,
+
+        "inbounds": {
+            "vless": ["REALITY", "TCPNONE", "VLESS+GRPC+NONE"],
+            "shadowsocks": ["Shadowsocks TCP"],
+            "trojan": ["Trojan + Tcp"],
+            "vmess": ["VMESS + TCP"]
+        },
+
+        "proxies": {
+            "vless": {"flow": ""},
+            "shadowsocks": {"method": "chacha20-ietf-poly1305"},
+            "trojan": {},
+            "vmess": {}
+        }
+    }
 
 
-# === برای تست مستقیم اجرا کن ===
-if __name__ == "__main__":
-    async def test():
-        print("🔹 Testing Marzban API connection...\n")
-        users = await get_users()
-        if users:
-            for u in users.get("users", [])[:5]:
-                print(f"👤 {u['username']} | status: {u['status']}")
+    headers = {"Authorization": f"Bearer {token}"}
 
-    asyncio.run(test())
+    async with aiohttp.ClientSession() as session:
+        async with session.post(f"{MARZBAN_URL}/api/user", json=payload, headers=headers) as resp:
+            try:
+                data = await resp.json()
+            except Exception:
+                data = {"raw_text": await resp.text()}
+            text_response = await resp.text()
+            print(f"\n[DEBUG] URL called -> {resp.url}")
+            print(f"[DEBUG] Response status: {resp.status}")
+            print(f"[DEBUG] Raw response text:\n{text_response}\n")
+
+            if resp.status in (200, 201):
+                sub_link = data.get("subscription_url") or data.get("subscription_link")
+                print(f"✅ User created in Marzban: {username}")
+                return sub_link or data
+            else:
+                print(f"[Marzban Error] {resp.status} -> {data}")
+                raise ValueError(f"خطا در ساخت کاربر مرزبان ({resp.status}): {data}")
+
+

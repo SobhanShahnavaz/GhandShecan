@@ -47,6 +47,8 @@ async def init_db():
                 telegram_user_id INTEGER,
                 plan_name TEXT,
                 price INTEGER,
+                duration INTEGER,
+                data_limit INTEGER,
                 payment_proof_file_id TEXT,
                 status TEXT DEFAULT 'pending',
                 created_at TEXT,
@@ -145,22 +147,25 @@ async def delete_marzban_account(panel_username: str):
 
 # 🧾 جدول سفارش‌ها (پرداخت‌ها)
 
-async def add_order(telegram_user_id: int, plan_name: str, price: int, payment_proof_file_id: str):
+async def add_order(telegram_user_id: int, plan_name: str, price: int,duration:int, data_limit:int, payment_proof_file_id: str):
     """افزودن سفارش جدید (بعد از اینکه کاربر رسید ارسال کرد)"""
     from datetime import datetime
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-            INSERT INTO orders (telegram_user_id, plan_name, price, payment_proof_file_id, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+        cursor = await db.execute("""
+            INSERT INTO orders (telegram_user_id, plan_name, price, duration, data_limit, payment_proof_file_id, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             telegram_user_id,
             plan_name,
             price,
+            duration,
+            data_limit,
             payment_proof_file_id,
             "pending",
             datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
         ))
         await db.commit()
+        return cursor.lastrowid 
 
 
 async def get_pending_orders():
