@@ -95,7 +95,7 @@ async def get_user_by_username(username: str):
         return None
 
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-    url_direct = f"{MARZBAN_URL}/api/users/{username}"
+    url_direct = f"{MARZBAN_URL}/api/user/{username}"
 
     async with aiohttp.ClientSession() as session:
         try:

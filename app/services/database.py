@@ -35,6 +35,7 @@ async def init_db():
                 used_traffic INTEGER,
                 subscription_url TEXT,
                 last_sync TEXT,
+                plan_duration INTEGER,
                 FOREIGN KEY (telegram_user_id) REFERENCES telegram_users(id) ON DELETE CASCADE
             )
         """)
@@ -109,20 +110,26 @@ async def is_user_joined(telegram_id: int) -> bool:
 # 🧩 حساب‌های مرزبان
 async def add_marzban_account(telegram_user_id: int, panel_username: str, status: str = None,
                               expire: int = None, used_traffic: int = None,
-                              subscription_url: str = None):
+                              subscription_url: str = None, Plan_Duration: int = None):
     """افزودن حساب جدید مرزبان برای کاربر"""
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""
-            INSERT INTO marzban_accounts (telegram_user_id, panel_username, status, expire, used_traffic, subscription_url, last_sync)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO marzban_accounts (telegram_user_id, panel_username, status, expire, used_traffic, subscription_url, last_sync, plan_duration)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (telegram_user_id, panel_username, status, expire, used_traffic, subscription_url,
-              datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")))
+              datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S") , Plan_Duration ))
         await db.commit()
 
 async def get_marzban_accounts_by_user(telegram_user_id: int):
     """دریافت تمام حساب‌های مرزبان مرتبط با کاربر تلگرام"""
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute("SELECT * FROM marzban_accounts WHERE telegram_user_id = ?", (telegram_user_id,))
+        rows = await cursor.fetchall()
+        return rows
+async def get_marzban_accounts_by_id(ID: int):
+    """دریافت تمام حساب‌های مرزبان مرتبط با کاربر تلگرام"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute("SELECT * FROM marzban_accounts WHERE id = ?", (ID,))
         rows = await cursor.fetchall()
         return rows
 
@@ -133,7 +140,7 @@ async def update_marzban_account(panel_username: str, status: str = None,
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""
             UPDATE marzban_accounts
-            SET status = ?, expire = ?, used_traffic = ?, subscription_url = ?, last_sync = ?
+            SET status = ?, expire = ?, used_traffic = ?, subscription_url = ?, last_sync = ? 
             WHERE panel_username = ?
         """, (status, expire, used_traffic, subscription_url,
               datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"), panel_username))
@@ -204,4 +211,11 @@ async def update_order_status(order_id: int, new_status: str):
             SET status = ?
             WHERE id = ?
         """, (new_status, order_id))
+        await db.commit()
+
+async def alter():
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            ALTER TABLE marzban_accounts ADD COLUMN plan_duration INTEGER DEFAULT 1;
+        """)
         await db.commit()

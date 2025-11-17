@@ -1,8 +1,9 @@
 from aiogram import Router, types, F
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from app.services.database import update_order_status, get_order_by_id, get_user
+from app.services.database import update_order_status, get_order_by_id, get_user , add_marzban_account
 from app.services.marzban_api import create_user_in_marzban
 import os
+from datetime import datetime, timedelta
 
 router = Router()
 
@@ -35,15 +36,16 @@ async def approve_order(callback: types.CallbackQuery):
     try:
         # ساخت یوزر در مرزبان
         config_name = order[2] if isinstance(order, (list, tuple)) else order["plan_name"]
-        Plan_name = prefix + "-" + config_name
+        Plan_name = config_name + "-" + prefix
         price = order[3] if isinstance(order, (list, tuple)) else order["price"]
         duration = order[4] if isinstance(order, (list, tuple)) else order["duration"]
         data_limit = order[5] if isinstance(order, (list, tuple)) else order["data_limit"]
         days = duration * 30
+        expire_timestamp = int((datetime.utcnow() + timedelta(days)).timestamp())
         # تبدیل قیمت یا حجم به مشخصات پلن (موقت)
         # مثلا بر اساس نام کانفیگ، حجم و مدت مشخص کن
         sub_link = await create_user_in_marzban(username=Plan_name, data_limit_gb=data_limit, expire_days= days)
-
+        await add_marzban_account(user_id,Plan_name,"Active",expire_timestamp,0,sub_link)
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📘 نحوه استفاده از لینک", url=HELP_MESSAGE_URL)],
             [InlineKeyboardButton(text="🔙 بازگشت به منو", callback_data="back_to_menu")]
