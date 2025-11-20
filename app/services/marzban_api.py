@@ -185,4 +185,44 @@ async def create_user_in_marzban(username: str, data_limit_gb: int, expire_days:
                 print(f"[Marzban Error] {resp.status} -> {data}")
                 raise ValueError(f"خطا در ساخت کاربر مرزبان ({resp.status}): {data}")
 
+async def update_user_in_marzban(username: str, payload: dict):
+    token = await _get_valid_token()
+    if not token:
+        print("❌ No valid token.")
+        return False
 
+    urlM = f"{MARZBAN_URL}/api/user/{username}"
+    urlR = f"{MARZBAN_URL}/api/user/{username}/reset"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+    }
+
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.put(urlM, json=payload, headers=headers, timeout=10) as resp:
+                if resp.status in (200, 201):
+                    async with session.post(urlR, headers=headers, timeout=10) as resp2:
+                        if resp2.status in (200, 201):
+                            return True
+
+                error_text = await resp.text()
+                print(f"[Marzban Error] {resp.status} -> {error_text}")
+                return False
+            
+        except Exception as e:
+            print("[Marzban Exception]", e)
+            return False
+
+async def delete_user_from_marzban(username: str):
+    token = await _get_valid_token()
+    if not token:
+        return False
+
+    url = f"{MARZBAN_URL}/api/user/{username}"
+    headers = {"Authorization": f"Bearer {token}"}
+
+    async with aiohttp.ClientSession() as session:
+        async with session.delete(url, headers=headers) as resp:
+            return resp.status == 200

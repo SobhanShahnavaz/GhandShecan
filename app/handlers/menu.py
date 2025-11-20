@@ -1,15 +1,17 @@
 from aiogram import Router, types, F
 from app.keyboards.main_menu import main_menu_keyboard
 from app.services import marzban_api
-from app.services.database import get_marzban_accounts_by_user, get_user_id, add_order
+from app.services.database import get_marzban_accounts_by_user,get_plan_price, get_user, add_order , get_marzban_account_by_id,delete_marzban_account
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import re
+from app.services.marzban_api import get_user_by_username,delete_user_from_marzban
 
 
 import os
 
 router = Router()
 ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
+LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID"))
 # حافظه موقت برای نگهداری انتخاب‌های کاربر
 user_choices = {}
 
@@ -22,7 +24,7 @@ async def show_main_menu(callback: types.CallbackQuery):
     await callback.answer()
 
 
-@router.callback_query(lambda c: not c.data.startswith("order_"))
+@router.callback_query(lambda c: not c.data.startswith("order_") )
 async def handle_menu_selection(callback: types.CallbackQuery):
     data = callback.data
     
@@ -43,8 +45,11 @@ async def handle_menu_selection(callback: types.CallbackQuery):
                 InlineKeyboardButton(text="❌ انصراف", callback_data="cancel_payment")
             ]
         ])
-        await callback.message.answer("📋 لطفاً مدت پلن مورد نظرت رو انتخاب کن:", reply_markup=keyboard)
+        
+
         await callback.answer()
+        await callback.message.delete()
+        await callback.message.answer("📋 لطفاً مدت پلن مورد نظرت رو انتخاب کن:", reply_markup=keyboard)
         return
 
 
@@ -138,35 +143,63 @@ async def handle_menu_selection(callback: types.CallbackQuery):
 
     elif data == "my_configs":
         telegram_id = callback.from_user.id
-        user_id = await get_user_id(telegram_id)
+    
+    # ⚠️ اینجا ورودی باید telegram_id باشد نه user_id
+        accounts = await get_marzban_accounts_by_user(telegram_id)
 
-        if not user_id:
-            await callback.message.answer("⚠️ ابتدا باید ثبت‌نام کنید.")
-            return
-
-        accounts = await get_marzban_accounts_by_user(user_id)
         if not accounts:
+            await callback.answer()
+            await callback.message.delete()
             await callback.message.answer("❌ هیچ حسابی برای شما ثبت نشده است.")
+            
             return
 
-        # ساخت کیبورد اینلاین از حساب‌ها
         keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+
         for acc in accounts:
-            username = acc[2]  # panel_username
-            status = acc[3] or "unknown"
-            icon = "🟢" if status == "active" else "🔴"
+            acc_id = acc[0]               # id جدول
+            panel_username = acc[2]       # marzban username
+
+            # دریافت لحظه‌ای از پنل
+            info = await get_user_by_username(panel_username)
+            if not info:
+                icon = "🔴"
+                remaining = "-"
+            else:
+                status = info.get("status", "unknown")
+                icon = "🟢" if status == "active" else "🔴"
+
+                # محاسبه روزهای باقی مانده
+                expire_ts = info.get("expire")
+                if expire_ts:
+                    from datetime import datetime
+                    try:
+                        expire_dt = datetime.fromtimestamp(int(expire_ts))
+                        remaining = (expire_dt - datetime.now()).days
+                    except:
+                        remaining = "-"
+                else:
+                    remaining = "-"
+
             keyboard.inline_keyboard.append([
                 InlineKeyboardButton(
-                    text=f"{icon} {username}",
-                    callback_data=f"show_acc_{username}"
+                    text=f"{icon} {panel_username}",
+                    callback_data=f"show_acc_{acc_id}"
                 )
             ])
+
+        # دکمه بازگشت
+        keyboard.inline_keyboard.append([
+            InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_menu")
+        ])
+        await callback.answer()
+        await callback.message.delete()
 
         await callback.message.answer(
             "🔰 حساب مورد نظر را انتخاب کنید:",
             reply_markup=keyboard
         )
-        await callback.answer()
+        
 
 
 
@@ -215,60 +248,255 @@ async def handle_menu_selection(callback: types.CallbackQuery):
 
 
     elif data.startswith("show_acc_"):
-        panel_username = data.replace("show_acc_", "")
+
+        acc_id = int(data.replace("show_acc_", ""))   # ← قبلاً username بود
+
         telegram_id = callback.from_user.id
-        user_id = await get_user_id(telegram_id)
 
-        accounts = await get_marzban_accounts_by_user(user_id)
-        account = next((a for a in accounts if a[2] == panel_username), None)
+        accounts = await get_marzban_accounts_by_user(telegram_id)
 
+        account = next((a for a in accounts if a[0] == acc_id), None)
+
+        if not account:
+            await callback.answer()
+            await callback.message.delete()
+            await callback.message.answer("⚠️ حساب مورد نظر یافت نشد.")
+            return
+
+        panel_username = account[2]
+
+        info = await get_user_by_username(panel_username)
+        if not info:
+            await callback.answer()
+            await callback.message.delete()
+            await callback.message.answer("❌ دریافت اطلاعات از سرور ممکن نشد.")
+            return
+
+        status = info.get("status", "unknown")
+        status_icon = "🟢 فعال" if status == "active" else "🔴 غیرفعال"
+
+        used = info.get("used_traffic", 0)
+        used_gb = round(used / (1024 ** 3), 2)
+
+        data_limit = info.get("data_limit")
+        limit_gb = round(data_limit / (1024 ** 3), 2) if data_limit else "∞"
+        created_at = info.get("created_at")
+        expire_ts = info.get("expire")
+        
+        
+            
+        
+        if expire_ts:
+            from datetime import datetime
+            expire_dt = datetime.fromtimestamp(expire_ts)
+            expire_str = expire_dt.strftime("%Y-%m-%d %H:%M")
+            remaining_days = (expire_dt - datetime.now()).days
+        else:
+            remaining_days = "∞"
+            expire_str = "∞"
+        if data_limit: 
+            remaining_gb = round(limit_gb - used_gb, 2)
+        else:
+            remaining_gb = "∞"
+        if created_at:
+            created_str = created_at.replace("T", " ").split(".")[0]
+        else:
+            created_str = "نامشخص"
+        links = info.get("subscription_url")
+        sub_link = links if links else "❌ لینک موجود نیست"
+
+        kb = [
+        [
+            InlineKeyboardButton(text=panel_username, callback_data="none"),
+            InlineKeyboardButton(text=":نام پلن", callback_data="none")
+            
+        ],
+        [
+            InlineKeyboardButton(text=created_str, callback_data="none"),
+            InlineKeyboardButton(text=":تاریخ خرید", callback_data="none")
+        ],
+        [
+            InlineKeyboardButton(text=expire_str, callback_data="none"),
+            InlineKeyboardButton(text=":تاریخ انقضا", callback_data="none")
+        ],
+        [
+            InlineKeyboardButton(text=f"{remaining_gb} GB", callback_data="none"),
+            InlineKeyboardButton(text=":حجم باقی‌مانده", callback_data="none")
+            
+        ],
+        [
+            InlineKeyboardButton(text=f"{used_gb} GB", callback_data="none"),
+            InlineKeyboardButton(text=":حجم مصرفی", callback_data="none")
+            
+        ],
+        [
+            InlineKeyboardButton(text="🔄 تمدید سرویس", callback_data=f"renew_acc_{acc_id}")
+        ],
+        [
+            InlineKeyboardButton(text="🗑 حذف کانفیگ", callback_data=f"delete_acc_{acc_id}")
+        ],
+        [
+            InlineKeyboardButton(text="🔙 بازگشت", callback_data="my_configs")
+        ]
+        ]
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=kb)
+        # پیام نهایی:
+        text = (
+            f"👤 <b>{panel_username}</b>\n"
+            f"📊 وضعیت: {status_icon}\n"
+            f"📦 مصرف: {used_gb} GB از {limit_gb} GB\n"
+            f"⏱ روزهای باقی‌مانده: {remaining_days}\n\n"
+            f"🔗 <b>لینک اتصال:</b>\n"
+            f"<code>{sub_link}</code>"
+        )
+        await callback.answer()
+        await callback.message.delete()
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+        
+
+    elif data.startswith("renew_acc_"):
+        acc_id = int(data.replace("renew_acc_", ""))
+        telegram_id = callback.from_user.id
+
+        # پاک کردن کیبورد پیام قبلی (تا دوباره روی دکمه زده نشه)
+        try:
+            await callback.message.delete()
+        except:
+            try:
+                await callback.message.edit_reply_markup(reply_markup=None)
+            except:
+                pass
+
+        await callback.answer()
+
+        # --- 1) گرفتن رکورد حساب از دیتابیس (تو تابعت احتمالا موجوده) ---
+        # فرض می‌کنم تابعی مثل get_marzban_account_by_id داری؛ اگر نداری بگو تا اضافه کنم
+        account = await get_marzban_account_by_id(acc_id)
         if not account:
             await callback.message.answer("⚠️ حساب مورد نظر یافت نشد.")
             return
 
-        status = account[3] or "نامشخص"
-        expire_ts = account[4]
-        used_traffic = account[5] or 0
-        subscription_url = account[6] or "⛔ لینک اشتراک موجود نیست"
+        panel_username = account[2]   
+        plan_months = int(account[8]) if account[8] is not None else None
+        plan_size_gb = float(account[9]) if account[9] is not None else None
+        
 
-        # تبدیل بایت به گیگابایت
-        used_gb = used_traffic / (1024 ** 3)
-        used_text = f"{used_gb:.2f} GB"
+        if not plan_months or not plan_size_gb:
+            # اگر اطلاعات پلن ذخیره نشده، بهتره از orders یا config_name استخراج کنیم یا خطا بدیم
+            await callback.message.answer("⚠️ اطلاعات پلن قبلی ناقص است. امکان تمدید اتومات وجود ندارد.")
+            return
 
-        # محاسبه روزهای باقی‌مانده
-        from datetime import datetime
-        if expire_ts:
-            expire_date = datetime.utcfromtimestamp(expire_ts)
-            remaining_days = (expire_date - datetime.utcnow()).days
-            if remaining_days < 0:
-                expire_text = "⛔ منقضی شده"
-            elif remaining_days == 0:
-                expire_text = "⚠️ کمتر از ۱ روز"
-            else:
-                expire_text = f"{remaining_days} روز باقی‌مانده"
-        else:
-            expire_text = "نامشخص"
+        plan_price = await get_plan_price(int(plan_size_gb), int(plan_months))
 
-        text = (
-            f"👤 <b>{panel_username}</b>\n"
-            f"🔸 وضعیت: {status}\n"
-            f"📦 مصرف: {used_text}\n"
-            f"⏳ انقضا: {expire_text}\n\n"
-            f"🔗 <b>لینک اشتراک:</b>\n"
-            f"{subscription_url}"
+        if not plan_price:
+            await callback.message.answer("⚠️ خطا: قیمت پلن تمدید پیدا نشد. با پشتیبانی تماس بگیرید.")
+            return
+
+        marzban_user = await get_user_by_username(panel_username)
+        if not marzban_user:
+            await callback.message.answer("❌ خطا در دریافت اطلاعات از پنل مرزبان.")
+            return
+        # ذخیره اطلاعات تمدید در user_choices، مثل خرید اولیه
+        user_choices[telegram_id] = {
+            "action": "renew",
+            "acc_id": acc_id,
+            "config_name": panel_username,
+            "duration": plan_months,
+            "size": plan_size_gb,
+            "price": plan_price
+        }
+
+        await callback.message.answer(
+            f"💳 مبلغ تمدید: {plan_price:,} هزار تومان\n"
+            "لطفاً رسید پرداخت را ارسال کنید.",
         )
 
-        await callback.message.answer(text, parse_mode="HTML")
+    elif data.startswith("delete_acc_"):
+        acc_id = int(data.split("_", 2)[2])
+
+        # پاک کردن دکمه‌های قبلی
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except:
+            pass
+
         await callback.answer()
 
-@router.callback_query(lambda c: c.data == "back_to_menu")
-async def back_to_menu(callback: types.CallbackQuery):
-    await callback.message.delete()
-    await callback.message.answer(
-        "🔙 برگشتی به منو!\nیکی از گزینه‌های زیر را انتخاب کن:",
-        reply_markup=main_menu_keyboard  # ← همون کیبورد منوی اصلی خودت
-    )
-    await callback.answer()
+        # پیام تأیید
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="❌ لغو", callback_data="cancel_delete"),
+                InlineKeyboardButton(text="🗑 حذف نهایی", callback_data=f"confirm_delete_{acc_id}")
+            ]
+        ])
+
+        await callback.message.answer(
+            "⚠️ آیا از حذف این کانفیگ مطمئن هستید؟\nاین عملیات غیرقابل بازگشت است.\nفقط اگر کمتر از یک روز از خرید شما گذشته باشد،\n اکانت شما به اندازه مبلغ پرداختی شارژ میشود(پس از ارتباط با پشتیبانی!)",
+            reply_markup=kb
+        )
+    elif data == "cancel_delete":
+        try:
+            await callback.message.delete()
+        except:
+            await callback.message.edit_reply_markup(None)
+
+        await callback.answer("❎ حذف لغو شد.")
+
+    elif data.startswith("confirm_delete_"):
+        acc_id = int(data.split("_", 2)[2])
+
+        # حذف پیام تایید
+        try:
+            await callback.message.delete()
+        except:
+            pass
+
+        await callback.answer()
+
+        # گرفتن رکورد از دیتابیس
+        account = await get_marzban_account_by_id(acc_id)
+        if not account:
+            await callback.message.answer("❌ حساب پیدا نشد.")
+            return
+        tg_id = account[1]
+        panel_username = account[2]   # username در مرزبان
+
+        # --- حذف از پنل ---
+        ok = await delete_user_from_marzban(panel_username)
+        if not ok:
+            await callback.message.answer("❌ خطا در حذف از پنل مرزبان.")
+            return
+        
+        # --- حذف از دیتابیس ---
+        await delete_marzban_account(acc_id)
+        userinforaw = await get_user(tg_id)
+        username = userinforaw[2]
+        firstname = userinforaw[3]
+
+        await callback.bot.send_message(
+            LOG_CHANNEL_ID,
+            f"کاربر <a href='tg://user?id={tg_id}'>{firstname}</a> با آیدی {username} حساب(کانفیگ) {panel_username} را حذف کرد.",
+            parse_mode="HTML",
+        )
+        # پیام موفقیت
+        await callback.message.answer(
+            "🗑 کانفیگ با موفقیت حذف شد. برای بررسی بازگشت وجه به کیف پولتان به پشتیبانی پیام دهید.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 بازگشت", callback_data="my_configs")],
+                [InlineKeyboardButton(text="🏠 منو", callback_data="back_to_menu")]
+            ])
+        )
+
+    
+    elif data == "back_to_menu":
+        await callback.message.delete()
+        await callback.message.answer(
+            "🔙 برگشتی به منو! Cipher Connect آماده همراهی شماست.🟢\nیکی از گزینه‌های زیر را انتخاب کن:",
+            reply_markup=main_menu_keyboard()  # ← همون کیبورد منوی اصلی خودت
+        )
+        await callback.answer()
+
 @router.message(F.text)
 async def handle_config_name(message: types.Message):
     user_id = message.from_user.id

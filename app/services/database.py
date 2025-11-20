@@ -36,6 +36,7 @@ async def init_db():
                 subscription_url TEXT,
                 last_sync TEXT,
                 plan_duration INTEGER,
+                data_limit INTEGER,
                 FOREIGN KEY (telegram_user_id) REFERENCES telegram_users(id) ON DELETE CASCADE
             )
         """)
@@ -53,7 +54,19 @@ async def init_db():
                 payment_proof_file_id TEXT,
                 status TEXT DEFAULT 'pending',
                 created_at TEXT,
+                type TEXT,
                 FOREIGN KEY (telegram_user_id) REFERENCES telegram_users(id)
+            )
+        """)
+
+        await db.commit()
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS plans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                data_gb INTEGER,
+                months INTEGER,
+                price INTEGER
             )
         """)
 
@@ -110,14 +123,14 @@ async def is_user_joined(telegram_id: int) -> bool:
 # 🧩 حساب‌های مرزبان
 async def add_marzban_account(telegram_user_id: int, panel_username: str, status: str = None,
                               expire: int = None, used_traffic: int = None,
-                              subscription_url: str = None, Plan_Duration: int = None):
+                              subscription_url: str = None, Plan_Duration: int = None ,DataLimit: int = None):
     """افزودن حساب جدید مرزبان برای کاربر"""
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""
-            INSERT INTO marzban_accounts (telegram_user_id, panel_username, status, expire, used_traffic, subscription_url, last_sync, plan_duration)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO marzban_accounts (telegram_user_id, panel_username, status, expire, used_traffic, subscription_url, last_sync, plan_duration, data_limit)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (telegram_user_id, panel_username, status, expire, used_traffic, subscription_url,
-              datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S") , Plan_Duration ))
+              datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S") , Plan_Duration , DataLimit))
         await db.commit()
 
 async def get_marzban_accounts_by_user(telegram_user_id: int):
@@ -126,11 +139,11 @@ async def get_marzban_accounts_by_user(telegram_user_id: int):
         cursor = await db.execute("SELECT * FROM marzban_accounts WHERE telegram_user_id = ?", (telegram_user_id,))
         rows = await cursor.fetchall()
         return rows
-async def get_marzban_accounts_by_id(ID: int):
+async def get_marzban_account_by_id(ID: int):
     """دریافت تمام حساب‌های مرزبان مرتبط با کاربر تلگرام"""
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute("SELECT * FROM marzban_accounts WHERE id = ?", (ID,))
-        rows = await cursor.fetchall()
+        rows = await cursor.fetchone()
         return rows
 
 async def update_marzban_account(panel_username: str, status: str = None,
@@ -145,22 +158,47 @@ async def update_marzban_account(panel_username: str, status: str = None,
         """, (status, expire, used_traffic, subscription_url,
               datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"), panel_username))
         await db.commit()
+async def update_marzban_account_after_renew(acc_id: int, new_expire_ts: int, new_data_limit: int, used_traffic: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """
+            UPDATE marzban_accounts
+            SET expire = ?, data_limit = ?, used_traffic = ?, last_sync = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (new_expire_ts, new_data_limit, used_traffic, acc_id)
+        )
+        await db.commit()
 
-async def delete_marzban_account(panel_username: str):
+async def get_marzban_account_by_user_plan(telegram_user_id: int, plan_name: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            """
+            SELECT * FROM marzban_accounts
+            WHERE telegram_user_id = ? AND panel_username = ?
+            LIMIT 1
+            """,
+            (telegram_user_id, plan_name)
+        )
+        row = await cursor.fetchone()
+        return row
+
+
+async def delete_marzban_account(Account_id: str):
     """حذف یک حساب مرزبان"""
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("DELETE FROM marzban_accounts WHERE panel_username = ?", (panel_username,))
+        await db.execute("DELETE FROM marzban_accounts WHERE id = ?", (Account_id,))
         await db.commit()
 
 # 🧾 جدول سفارش‌ها (پرداخت‌ها)
 
-async def add_order(telegram_user_id: int, plan_name: str, price: int,duration:int, data_limit:int, payment_proof_file_id: str):
+async def add_order(telegram_user_id: int, plan_name: str, price: int,duration:int, data_limit:int, payment_proof_file_id: str, order_type:str = None):
     """افزودن سفارش جدید (بعد از اینکه کاربر رسید ارسال کرد)"""
     from datetime import datetime
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute("""
-            INSERT INTO orders (telegram_user_id, plan_name, price, duration, data_limit, payment_proof_file_id, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO orders (telegram_user_id, plan_name, price, duration, data_limit, payment_proof_file_id, status, created_at, type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             telegram_user_id,
             plan_name,
@@ -169,7 +207,8 @@ async def add_order(telegram_user_id: int, plan_name: str, price: int,duration:i
             data_limit,
             payment_proof_file_id,
             "pending",
-            datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+            order_type
         ))
         await db.commit()
         return cursor.lastrowid 
@@ -213,9 +252,16 @@ async def update_order_status(order_id: int, new_status: str):
         """, (new_status, order_id))
         await db.commit()
 
-async def alter():
+async def get_plan_price(data_gb: int, months: int):
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-            ALTER TABLE marzban_accounts ADD COLUMN plan_duration INTEGER DEFAULT 1;
-        """)
-        await db.commit()
+        cursor = await db.execute(
+            "SELECT price FROM plans WHERE data_gb = ? AND months = ?",
+            (data_gb, months)
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else None
+""" async def alter():
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "ALTER TABLE orders ADD COLUMN type TEXT DEFAULT 'buy'"
+        ) """

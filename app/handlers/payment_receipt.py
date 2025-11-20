@@ -40,15 +40,18 @@ async def handle_payment_receipt(message: types.Message):
     duration = user_data.get("duration", 0)
     size = user_data.get("size", 0)
     price = user_data.get("price", 0)
+    order_type = user_data.get("action", "buy")
+
 
     # ذخیره در دیتابیس
-    order_id = await add_order(telegram_id, config_name, price, duration, size, file_id)
+    order_id = await add_order(telegram_id, config_name, price, duration, size, file_id, order_type)
 
     # پیام برای مدیر
     caption = (
         f"📥 <b>رسید جدید پرداخت</b>\n\n"
         f"👤 <b>کاربر:</b> @{message.from_user.username or message.from_user.full_name}\n"
         f"🆔 <code>{telegram_id}</code>\n"
+        f"نوع سفارش: {'تمدید' if order_type == 'renew' else 'خرید'}\n"
         f"📝 <b>نام کانفیگ:</b> {config_name}\n"
         f"⏱ <b>مدت:</b> {duration} ماهه\n"
         f"📦 <b>حجم:</b> {size} گیگ\n"
