@@ -72,6 +72,24 @@ async def init_db():
 
         await db.commit()
 
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS agents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_id INTEGER UNIQUE,
+                username TEXT,
+                first_name TEXT,
+                last_name TEXT,
+                phone_number TEXT,
+                register_date TEXT,
+                is_joined INTEGER DEFAULT 0,
+                joined_at TEXT
+            )
+        """)
+
+        await db.commit()
+
+
+
 # 🧩 کاربران تلگرام
 async def add_user(telegram_id: int, username: str, first_name: str,
                    last_name: str, phone_number: str, register_date: str | None):
@@ -260,8 +278,37 @@ async def get_plan_price(data_gb: int, months: int):
         )
         row = await cursor.fetchone()
         return row[0] if row else None
-""" async def alter():
+
+
+async def add_agent(telegram_id, username=None, first_name=None, last_name=None,
+              phone_number=None, register_date=None, is_joined=0, joined_at=None):
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "ALTER TABLE orders ADD COLUMN type TEXT DEFAULT 'buy'"
-        ) """
+        await db.execute("""
+            INSERT OR IGNORE INTO agents 
+                (telegram_id, username, first_name, last_name, phone_number, register_date, is_joined, joined_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?
+            )
+        """, (telegram_id, username, first_name, last_name, phone_number, register_date, is_joined, joined_at))
+        db.commit()
+
+async def get_agent(telegram_id):
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cursor = await conn.execute("SELECT * FROM agents WHERE telegram_id = ?", (telegram_id,))
+        row = await cursor.fetchone()
+        return row
+
+async def is_agent(telegram_id):
+    return await get_agent(telegram_id) is not None
+
+
+async def list_agents():
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cursor = await conn.execute("SELECT * FROM agents ORDER BY id DESC")
+        row = await cursor.fetchall()
+        return row
+
+async def remove_agent(telegram_id):
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute("DELETE FROM agents WHERE telegram_id = ?", (telegram_id,))
+        conn.commit()
+

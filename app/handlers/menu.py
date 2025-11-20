@@ -1,7 +1,7 @@
 from aiogram import Router, types, F
-from app.keyboards.main_menu import main_menu_keyboard
+from app.keyboards.main_menu import main_menu_keyboard,request_cooperation_keyboard
 from app.services import marzban_api
-from app.services.database import get_marzban_accounts_by_user,get_plan_price, get_user, add_order , get_marzban_account_by_id,delete_marzban_account
+from app.services.database import get_marzban_accounts_by_user,is_agent,get_plan_price, get_user, add_order , get_marzban_account_by_id,delete_marzban_account
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import re
 from app.services.marzban_api import get_user_by_username,delete_user_from_marzban
@@ -32,7 +32,7 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         # ----------------------------
     # خرید کانفیگ — دو مرحله‌ای بدون state
     # ----------------------------
-
+    
     if data == "buy_config":
         # مرحله ۱: انتخاب مدت
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -488,7 +488,23 @@ async def handle_menu_selection(callback: types.CallbackQuery):
             ])
         )
 
-    
+    elif data == "agent_panel":
+        tg_id = callback.from_user.id
+        is_agent_bo = await is_agent(tg_id)
+        if not is_agent_bo:
+            await callback.message.edit_text(
+                "شما در لیست نمایندگان نیستید.\n"
+                "در صورت تمایل برای همکاری دکمه زیر را بزنید:",
+                reply_markup=request_cooperation_keyboard()
+            )
+        else:
+            # placeholder for agent panel
+            await callback.message.edit_text(
+                "🎉 پنل نمایندگی شما آماده است.\n(بعداً این بخش را تکمیل می‌کنیم.)"
+            )
+    elif data == "request_agent":
+        await callback.answer("درخواست شما ثبت شد. منتظر تایید ادمین باشید.", show_alert=False)
+
     elif data == "back_to_menu":
         await callback.message.delete()
         await callback.message.answer(
