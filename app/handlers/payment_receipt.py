@@ -40,20 +40,32 @@ async def handle_payment_receipt(message: types.Message):
     duration = user_data.get("duration", 0)
     size = user_data.get("size", 0)
     price = user_data.get("price", 0)
+    is_agent = user_data.get("is_agent",0)
     order_type = user_data.get("action", "buy")
-
-
+    userlimit = user_data.get("user_limit", 1)
+    maxdevtext = user_data.get("max_device", "نامعلوم")
+    if is_agent:
+        CoworkOrCust = "نماینده"
+    else:
+        CoworkOrCust = "کاربر"
     # ذخیره در دیتابیس
-    order_id = await add_order(telegram_id, config_name, price, duration, size, file_id, order_type)
-
+    order_id = await add_order(telegram_id, config_name, price, duration, size, file_id, order_type,userlimit)
+    if order_type == "renew":
+        order_type_text = "تمدید"
+    elif order_type == "add_data":
+        order_type_text = "افزایش حجم"
+        duration= "-"
+    else:
+        order_type_text = "خرید"
     # پیام برای مدیر
     caption = (
         f"📥 <b>رسید جدید پرداخت</b>\n\n"
-        f"👤 <b>کاربر:</b> @{message.from_user.username or message.from_user.full_name}\n"
+        f"👤 <b>{CoworkOrCust}:</b> @{message.from_user.username or message.from_user.full_name}\n"
         f"🆔 <code>{telegram_id}</code>\n"
-        f"نوع سفارش: {'تمدید' if order_type == 'renew' else 'خرید'}\n"
+        f"نوع سفارش: {order_type_text}\n"
         f"📝 <b>نام کانفیگ:</b> {config_name}\n"
         f"⏱ <b>مدت:</b> {duration} ماهه\n"
+        f"⏱ <b>محدودیت کاربر:</b> {maxdevtext} کاربره\n"
         f"📦 <b>حجم:</b> {size} گیگ\n"
         f"💰 <b>مبلغ:</b> {price:,} هزار تومان\n"
         f"🕒 <b>تاریخ:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"

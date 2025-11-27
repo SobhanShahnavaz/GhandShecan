@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 import os
 from loguru import logger
 
-from app.handlers import start , menu , payment_receipt, admin_orders
+from app.handlers import start , menu , payment_receipt, admin_orders , admin
 
 
 
@@ -33,6 +33,7 @@ async def main():
     await init_db()
 
     # Register handlers
+    dp.include_router(admin.router)
     dp.include_router(start.router)
     dp.include_router(menu.router)
    

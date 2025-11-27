@@ -226,3 +226,52 @@ async def delete_user_from_marzban(username: str):
     async with aiohttp.ClientSession() as session:
         async with session.delete(url, headers=headers) as resp:
             return resp.status == 200
+
+async def add_data_for_user_in_marzban(username: str, new_limit: int, Expiredate: int):
+    token = await _get_valid_token()
+    if not token:
+        print("❌ No valid token.")
+        return False
+
+    url = f"{MARZBAN_URL}/api/user/{username}"
+    payload = {
+        "status": "active",
+        "username": username,
+        "note": "",
+        "data_limit": new_limit,
+        "data_limit_reset_strategy": "no_reset",
+        "expire": Expiredate,
+
+        "inbounds": {
+            "vless": ["REALITY", "TCPNONE", "VLESS+GRPC+NONE"],
+            "shadowsocks": ["Shadowsocks TCP"],
+            "trojan": ["Trojan + Tcp"],
+            "vmess": ["VMESS + TCP"]
+        },
+
+        "proxies": {
+            "vless": {"flow": ""},
+            "shadowsocks": {"method": "chacha20-ietf-poly1305"},
+            "trojan": {},
+            "vmess": {}
+        }
+    }
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+    }
+
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.put(url, json=payload, headers=headers, timeout=10) as resp:
+                if resp.status in (200, 201):
+                    return True
+
+                error_text = await resp.text()
+                print(f"[Marzban Error] {resp.status} -> {error_text}")
+                return False
+            
+        except Exception as e:
+            print("[Marzban Exception]", e)
+            return False

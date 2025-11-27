@@ -8,8 +8,8 @@ from aiogram.types import (
 from datetime import datetime
 import os
 
-from app.services.database import add_user, get_user, set_user_joined, is_user_joined
-from app.keyboards.main_menu import main_menu_keyboard
+from app.services.database import add_user, get_user, set_user_joined, is_user_joined,is_agent
+from app.keyboards.main_menu import main_menu_keyboard,agent_menu_keyboard
 
 router = Router()
 
@@ -66,20 +66,33 @@ async def start_command(message: types.Message):
 
     # اگر کاربر قبلاً ثبت شده
     if user:
-        await message.answer(
-            "🌟 خوش اومدی دوباره!\nمنوی اصلی برات باز شد 👇",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        await message.answer(
-            "درود ،دوست عزیز! به ربات cipher connect خوش اومدی ✨\n\n"
-            "🌐 اینترنت آزاد رو با ما تجربه کن!\n\n"
-            "🟢 اتصال پایدار و با کیفیت\n\n"
-            "⚡️ پرسرعت با کمترین پینگ\n\n"
-            "🔒 اتصال ایمن و مطمئن\n\n"
-            "⚪️ منصفانه‌ترین قیمت\n\n"
-            "⏱ پشتیبانی ۲۴ ساعته\n\n"
-            "🆔 @freeedomarea",
-            reply_markup=main_menu_keyboard()
+        telegram_id = message.from_user.id
+        isAgent = await is_agent(telegram_id)
+        if isAgent:
+            await message.answer(
+                "🌟 خوش اومدی دوباره!\nمنوی اصلی برات باز شد 👇",
+                reply_markup=ReplyKeyboardRemove()
+            )
+            await message.answer(
+                "درود ، به ربات cipher connect خوش اومدی ✨\n\nاینترنت آزاد رو با ما تجربه کنید🌐\n\n🟢 اتصال پایدار و با کیفیت \n\n⚡️پر سرعت با کمترین پینگ\n\n🔒 تضمین اتصال ایمن و مطمئن\n\n⚪️ منصفانه ترین قیمت\n\n⏱ پشتیبانی ۲۴ ساعته\n\nجهت دریافت نمایندگی حتما با پشتیبانی در ارتباط باشید ✅\n\n🆔 @freeedomarea",
+                reply_markup=agent_menu_keyboard()
+            )
+            
+        else:
+            await message.answer(
+                "🌟 خوش اومدی دوباره!\nمنوی اصلی برات باز شد 👇",
+                reply_markup=ReplyKeyboardRemove()
+            )
+            await message.answer(
+                "درود ،دوست عزیز! به ربات cipher connect خوش اومدی ✨\n\n"
+                "🌐 اینترنت آزاد رو با ما تجربه کن!\n\n"
+                "🟢 اتصال پایدار و با کیفیت\n\n"
+                "⚡️ پرسرعت با کمترین پینگ\n\n"
+                "🔒 اتصال ایمن و مطمئن\n\n"
+                "⚪️ منصفانه‌ترین قیمت\n\n"
+                "⏱ پشتیبانی ۲۴ ساعته\n\n"
+                "🆔 @freeedomarea",
+                reply_markup=main_menu_keyboard()
         )
     else:
         await ask_for_phone(message)
