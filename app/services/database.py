@@ -1,7 +1,7 @@
 import aiosqlite
 import os
 from datetime import datetime
-
+import time
 DB_PATH = "data/database.db"
 
 # 🧱 ساخت جداول
@@ -134,6 +134,20 @@ async def init_db():
                 
             )
         """)
+        await db.commit()
+        
+        
+        
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS test_accounts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_id INTEGER,
+                username TEXT,
+                created_at INTEGER,
+                is_agent INTEGER
+            )
+            """)
+        await db.commit()
         
         
 
@@ -585,5 +599,42 @@ async def activate_card(card_id: int):
 
     return True
 
+
+
+async def add_test_account(telegram_id: int, panel_username :str, is_agent: int ):
+    now = int(time.time())
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute(
+            "INSERT INTO test_accounts (telegram_id,username, created_at, is_agent) VALUES (?, ?, ?, ?)",
+            (telegram_id,panel_username, now, is_agent)
+        )
+        await conn.commit()
+
+
+async def count_test_accounts(telegram_id: int, is_agent: int):
+    now = int(time.time())
+    
+    if is_agent:
+        # Daily reset (last 24 hours)
+        reset_time = now - 24*3600
+    else:
+        # Monthly reset (~30 days)
+        reset_time = now - 30*24*3600
+
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cursor = await conn.execute("""
+            SELECT COUNT(*) FROM test_accounts
+            WHERE telegram_id = ? AND is_agent = ? AND created_at >= ?
+        """, (telegram_id, is_agent, reset_time))
+
+        row = await cursor.fetchone()
+        return row[0]
+
+async def get_all_test_usernames():
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cursor = await conn.execute("SELECT username FROM test_accounts")
+        rows = await cursor.fetchall()
+
+    return [row[0] for row in rows if row[0]]
 
 

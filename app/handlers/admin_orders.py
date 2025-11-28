@@ -229,7 +229,7 @@ async def approve_order(callback: types.CallbackQuery):
             await add_marzban_account(user_id,Plan_name,"Active",expire_timestamp,0,sub_link,duration,data_limit,devicelimit)
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="📘 نحوه استفاده از لینک", url=HELP_MESSAGE_URL)],
-                [InlineKeyboardButton(text="🔙 بازگشت به منو", callback_data="back_to_menu")]
+                [InlineKeyboardButton(text="🔙 بازگشت به منو", callback_data="back_to_menu_without_del")]
             ])
             await callback.bot.send_message(
                 user_id,

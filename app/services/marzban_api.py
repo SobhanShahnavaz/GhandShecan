@@ -275,3 +275,74 @@ async def add_data_for_user_in_marzban(username: str, new_limit: int, Expiredate
         except Exception as e:
             print("[Marzban Exception]", e)
             return False
+        
+
+async def create_Test_in_marzban(username: str, expire_hours: int):
+    """ساخت یوزر جدید در پنل مرزبان"""
+    token = await _get_valid_token()
+    if not token:
+        raise ValueError("❌ نتوانستم توکن مرزبان را بگیرم.")
+
+    expire_timestamp = int((datetime.utcnow() + timedelta(hours=expire_hours)).timestamp())
+    data_limit_bytes = 1 * 1024 * 1024 * 1024
+
+    payload = {
+        "status": "active",
+        "username": username,
+        "note": "",
+        "data_limit": data_limit_bytes,
+        "data_limit_reset_strategy": "no_reset",
+        "expire": expire_timestamp,
+
+        "inbounds": {
+            "vless": ["REALITY", "TCPNONE", "VLESS+GRPC+NONE"],
+            "shadowsocks": ["Shadowsocks TCP"],
+            "trojan": ["Trojan + Tcp"],
+            "vmess": ["VMESS + TCP"]
+        },
+
+        "proxies": {
+            "vless": {"flow": ""},
+            "shadowsocks": {"method": "chacha20-ietf-poly1305"},
+            "trojan": {},
+            "vmess": {}
+        }
+    }
+
+
+    headers = {"Authorization": f"Bearer {token}"}
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(f"{MARZBAN_URL}/api/user", json=payload, headers=headers) as resp:
+            try:
+                data = await resp.json()
+            except Exception:
+                data = {"raw_text": await resp.text()}
+            
+            
+            if resp.status in (200, 201):
+                sub_link = data.get("subscription_url") or data.get("subscription_link")
+                print(f"✅ test created in Marzban: {username}")
+                return sub_link or data
+            else:
+                print(f"[Marzban Error] {resp.status} -> {data}")
+                raise ValueError(f"خطا در ساخت کاربر مرزبان ({resp.status}): {data}")
+
+
+
+async def delete_disabled_tests_in_marzban(usernames: list):
+    for username in usernames:
+        try:
+            # get user details
+            user_data = await get_user_by_username(username)
+            if not user_data:
+                continue
+
+            # delete if disabled
+            if user_data.get("status") == "disabled":
+                await delete_user_from_marzban(username)
+                print(f"🗑 Deleted disabled test user: {username}")
+
+        except Exception as e:
+            print(f"[Error while checking/deleting test user {username}] {e}")
+            continue

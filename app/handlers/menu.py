@@ -6,16 +6,19 @@ from app.services.database import add_order , get_marzban_account_by_id,delete_m
 from app.services.database import get_marzban_accounts_by_user,get_agent,get_plan_price_by_DMA, get_user,add_agent_request
 from app.services.database import add_agent, delete_agent_request, add_agent_stats, get_agent_stats, is_agent
 from app.services.database import get_plans,delete_plan,add_plan,get_available_months,get_sizes_for_month,get_plan_by_id
+from app.services.database import count_test_accounts,add_test_account,get_all_test_usernames
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import re
-from app.services.marzban_api import get_user_by_username,delete_user_from_marzban
+from app.services.marzban_api import get_user_by_username,delete_user_from_marzban,delete_disabled_tests_in_marzban,create_Test_in_marzban
 from datetime import datetime
 import math
 import os
+from MessageAddresses import ANDROID_HELP_MESSAGE_Url
 
 router = Router()
 ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
 LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID"))
+ANDROID_HELP_MESSAGE_URL =ANDROID_HELP_MESSAGE_Url
 # حافظه موقت برای نگهداری انتخاب‌های کاربر
 user_choices = {}
 
@@ -263,7 +266,79 @@ async def handle_menu_selection(callback: types.CallbackQuery):
 
 
     elif data == "test_account":
-        await callback.answer("🧪 اکانت تست به‌زودی فعال می‌شود!", show_alert=True)
+        telegram_id = callback.from_user.id
+
+        agent = await is_agent(telegram_id)
+        is_agent_flag = 1 if agent else 0
+
+        current_count = await count_test_accounts(telegram_id, is_agent_flag)
+
+        # LIMITS
+        if agent:
+            limit = 5  # daily
+        else:
+            limit = 2  # monthly
+
+        if current_count >= limit:
+            if agent:
+                await callback.answer(
+                    "⛔️ سقف دریافت اکانت تست امروز پر شده است. (۵ تا در روز)",
+                    show_alert=True
+                )
+            else:
+                await callback.answer(
+                    "⛔️ سقف دریافت اکانت تست این ماه پر شده است. (۲ تا در ماه)",
+                    show_alert=True
+                )
+            return
+
+        # Otherwise allowed!
+        
+        user = await get_user(telegram_id)
+
+        # Determine username
+        username = callback.from_user.username
+        tg_phonenum = user[5] if isinstance(user, (list, tuple)) else user["phone_number"]
+
+        base = username if username else tg_phonenum if tg_phonenum else f"user{telegram_id}"
+
+        number = current_count + 1
+
+        # Username format: <base>-Test<number>
+        test_username = f"{base}-Test{number}"
+        
+        # Register the attempt 
+        await add_test_account(telegram_id,test_username, is_agent_flag)
+        # Duration differs
+        if agent:
+            duration_hours = 5
+        else:
+            duration_hours = 1
+
+        try:
+            sub_link = await create_Test_in_marzban(test_username, duration_hours)
+        except Exception as e:
+            await callback.message.answer(f"❌ خطا در ساخت اکانت تست:\n{e}")
+            return
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📘 نحوه استفاده از لینک", url=ANDROID_HELP_MESSAGE_URL)],
+                [InlineKeyboardButton(text="🔙 بازگشت به منو", callback_data="back_to_menu_without_del")]
+            ])
+        
+        msg = (
+            "🧪 <b>اکانت تست شما ساخته شد!</b>\n\n"
+            f"ℹ️ توجه داشته باشید که اکانت تست در منوی کانفیگ های من نمایش داده نمیشود.\n"
+            f"⏳ <b>مدت اعتبار:</b> {duration_hours} ساعت\n"
+            f"📦 <b>حجم:</b> 1 گیگابایت\n\n"
+            f"🔗 <b>لینک سابسکریبشن:</b>\n{sub_link}\n\n"
+            "آموزش استفاده:"
+            
+        )
+
+        await callback.message.answer(msg, parse_mode="HTML",reply_markup=keyboard)
+
+
 
     elif data == "wallet":
         await callback.answer("💰 مدیریت کیف پول به‌زودی فعال می‌شود!", show_alert=True)
@@ -838,6 +913,22 @@ async def handle_menu_selection(callback: types.CallbackQuery):
             )
         except:
             pass
+    
+    elif data == "back_to_menu_without_del":
+        telegram_id = callback.from_user.id
+        isAgent = await is_agent(telegram_id)
+        if isAgent:
+            await callback.message.answer(
+                "🔙 برگشتی به منو! Cipher Connect آماده همراهی شماست.🟢\nیکی از گزینه‌های زیر را انتخاب کن:",
+                reply_markup=agent_menu_keyboard()  # ← همون کیبورد منوی اصلی خودت
+            )
+            await callback.answer()
+        else:
+            await callback.message.answer(
+                "🔙 برگشتی به منو! Cipher Connect آماده همراهی شماست.🟢\nیکی از گزینه‌های زیر را انتخاب کن:",
+                reply_markup=main_menu_keyboard()  # ← همون کیبورد منوی اصلی خودت
+            )
+            await callback.answer()
 
 
     elif data == "back_to_menu":
@@ -957,7 +1048,18 @@ async def handle_menu_selection(callback: types.CallbackQuery):
 
 
     
-    
+    elif data == "remove_disabled_tests":
+        usernames = await get_all_test_usernames()
+        await delete_disabled_tests_in_marzban(usernames)
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🔙 بازگشت", callback_data="axtar_menu")
+            ]
+        ])
+        
+        await callback.message.edit_text("🧹 تست‌های غیرفعال پاک شدند.",reply_markup=kb)
+
+
     elif data == "axtar_menu":
         await callback.message.edit_text("🛠 پنل مدیریت", reply_markup=admin_menu_keyboard())
 
