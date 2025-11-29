@@ -211,11 +211,13 @@ async def handle_menu_selection(callback: types.CallbackQuery):
     
     # ⚠️ اینجا ورودی باید telegram_id باشد نه user_id
         accounts = await get_marzban_accounts_by_user(telegram_id)
-
+        backkeyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 بازگشت به منو", callback_data="back_to_menu_without_del")]
+            ])
         if not accounts:
             await callback.answer()
             await callback.message.delete()
-            await callback.message.answer("❌ هیچ حسابی برای شما ثبت نشده است.")
+            await callback.message.answer("❌ هیچ حسابی برای شما ثبت نشده است.",reply_markup=backkeyboard)
             
             return
 
@@ -278,12 +280,12 @@ async def handle_menu_selection(callback: types.CallbackQuery):
             ])
 
         if agent:
-            await callback.answer(
+            await callback.message.edit_text(
                 "نماینده عزیز، شما میتوانید 5 عدد اکانت تست در روز دریافت کنید.\nهر اکانت یک گیگابایت حجم و 5 ساعت زمان دارد.",
                 reply_markup=keyboard
             )
         else:
-            await callback.answer(
+            await callback.message.edit_text(
                 "کاربر عزیز، شما میتوانید 2 عدد اکانت تست در ماه دریافت کنید.\nهر اکانت یک گیگابایت حجم و 1 ساعت زمان دارد.",
                 reply_markup=keyboard
             )
@@ -358,7 +360,7 @@ async def handle_menu_selection(callback: types.CallbackQuery):
             f"ℹ️ توجه داشته باشید که اکانت تست در منوی کانفیگ های من نمایش داده نمیشود.\n"
             f"⏳ <b>مدت اعتبار:</b> {duration_hours} ساعت\n"
             f"📦 <b>حجم:</b> 1 گیگابایت\n\n"
-            f"🔗 <b>لینک سابسکریبشن:</b>\n{sub_link}\n\n"
+            f"🔗 <b>لینک سابسکریبشن:</b>\n<code>{sub_link}</code>\n\n"
             "آموزش استفاده:"
             
         )
@@ -418,20 +420,22 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         accounts = await get_marzban_accounts_by_user(telegram_id)
 
         account = next((a for a in accounts if a[0] == acc_id), None)
-
+        backkeyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 بازگشت به منو", callback_data="back_to_menu_without_del")]
+            ])
         if not account:
             await callback.answer()
             await callback.message.delete()
-            await callback.message.answer("⚠️ حساب مورد نظر یافت نشد.")
+            await callback.message.answer("⚠️ حساب مورد نظر یافت نشد.", reply_markup= backkeyboard)
             return
-
+        
         panel_username = account[2]
 
         info = await get_user_by_username(panel_username)
         if not info:
             await callback.answer()
             await callback.message.delete()
-            await callback.message.answer("❌ دریافت اطلاعات از سرور ممکن نشد.")
+            await callback.message.answer("❌ دریافت اطلاعات از سرور ممکن نشد.", reply_markup= backkeyboard)
             return
 
         status = info.get("status", "unknown")
