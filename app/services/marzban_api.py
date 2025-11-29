@@ -3,6 +3,10 @@ import aiohttp
 import asyncio
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+from zoneinfo import ZoneInfo
+
+def tehran_now():
+    return datetime.now(ZoneInfo("Asia/Tehran"))
 
 load_dotenv()
 
@@ -31,7 +35,7 @@ async def _request_token():
                 if resp.status == 200 and "access_token" in data:
                     _cached_token = data["access_token"]
                     # توکن معمولاً 24 ساعته است → تاریخ انقضا
-                    _token_expiry = datetime.now() + timedelta(hours=23)
+                    _token_expiry = tehran_now() + timedelta(hours=23)
                     print("✅ Token refreshed successfully.")
                     return _cached_token
                 else:
@@ -48,7 +52,7 @@ async def _get_valid_token():
     اگر منقضی شده، دوباره بساز.
     """
     global _cached_token, _token_expiry
-    if _cached_token and _token_expiry and datetime.now() < _token_expiry:
+    if _cached_token and _token_expiry and tehran_now() < _token_expiry:
         return _cached_token
     else:
         return await _request_token()
@@ -137,7 +141,7 @@ async def create_user_in_marzban(username: str, data_limit_gb: int, expire_days:
     if not token:
         raise ValueError("❌ نتوانستم توکن مرزبان را بگیرم.")
 
-    expire_timestamp = int((datetime.utcnow() + timedelta(days=expire_days)).timestamp())
+    expire_timestamp = int((tehran_now() + timedelta(days=expire_days)).timestamp())
     data_limit_bytes = data_limit_gb * 1024 * 1024 * 1024
 
     payload = {
@@ -283,7 +287,7 @@ async def create_Test_in_marzban(username: str, expire_hours: int):
     if not token:
         raise ValueError("❌ نتوانستم توکن مرزبان را بگیرم.")
 
-    expire_timestamp = int((datetime.utcnow() + timedelta(hours=expire_hours)).timestamp())
+    expire_timestamp = int((tehran_now() + timedelta(hours=expire_hours)).timestamp())
     data_limit_bytes = 1 * 1024 * 1024 * 1024
 
     payload = {

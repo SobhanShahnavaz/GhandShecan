@@ -1,8 +1,12 @@
 import aiosqlite
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import time
 DB_PATH = "data/database.db"
+
+def tehran_now():
+    return datetime.now(ZoneInfo("Asia/Tehran"))
 
 # 🧱 ساخت جداول
 async def init_db():
@@ -189,7 +193,7 @@ async def get_user_id(telegram_id: int) -> int | None:
 async def set_user_joined(telegram_id: int, joined: bool):
     """ثبت وضعیت عضویت در کانال"""
     joined_val = 1 if joined else 0
-    joined_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S") if joined else None
+    joined_at = tehran_now().strftime("%Y-%m-%d %H:%M:%S") if joined else None
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             "UPDATE telegram_users SET is_joined = ?, joined_at = ? WHERE telegram_id = ?",
@@ -214,7 +218,7 @@ async def add_marzban_account(telegram_user_id: int, panel_username: str, status
             INSERT INTO marzban_accounts (telegram_user_id, panel_username, status, expire, used_traffic, subscription_url, last_sync, plan_duration, data_limit,user_limit)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,?)
         """, (telegram_user_id, panel_username, status, expire, used_traffic, subscription_url,
-              datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S") , Plan_Duration , DataLimit,user_limit))
+              tehran_now().strftime("%Y-%m-%d %H:%M:%S") , Plan_Duration , DataLimit,user_limit))
         await db.commit()
 
 async def get_marzban_accounts_by_user(telegram_user_id: int):
@@ -240,7 +244,7 @@ async def update_marzban_account(panel_username: str, status: str = None,
             SET status = ?, expire = ?, used_traffic = ?, subscription_url = ?, last_sync = ? 
             WHERE panel_username = ?
         """, (status, expire, used_traffic, subscription_url,
-              datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"), panel_username))
+              tehran_now().strftime("%Y-%m-%d %H:%M:%S"), panel_username))
         await db.commit()
 async def update_marzban_account_after_renew(acc_id: int, new_expire_ts: int, new_data_limit: int):
     async with aiosqlite.connect(DB_PATH) as db:
@@ -278,7 +282,7 @@ async def delete_marzban_account(Account_id: str):
 
 async def add_order(telegram_user_id: int, plan_name: str, price: int,duration:int, data_limit:int, payment_proof_file_id: str, order_type:str = None, user_limit:int = 1):
     """افزودن سفارش جدید (بعد از اینکه کاربر رسید ارسال کرد)"""
-    from datetime import datetime
+    
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute("""
             INSERT INTO orders (telegram_user_id, plan_name, price, duration, data_limit, payment_proof_file_id, status, created_at, type, user_limit)
@@ -291,7 +295,7 @@ async def add_order(telegram_user_id: int, plan_name: str, price: int,duration:i
             data_limit,
             payment_proof_file_id,
             "pending",
-            datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+            tehran_now().strftime("%Y-%m-%d %H:%M:%S"),
             order_type,
             user_limit
         ))
@@ -438,7 +442,7 @@ async def add_agent_request(user):
             user.username,
             user.first_name,
             user.last_name,
-            datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            tehran_now().strftime("%Y-%m-%d %H:%M:%S")
         ))
         await db.commit()
 
@@ -451,7 +455,7 @@ async def add_agent(telegram_id, username=None, first_name=None, last_name=None,
                 (telegram_id, username, first_name, last_name, phone_number, register_date, is_joined, joined_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?
             )
-        """, (telegram_id, username, first_name, last_name, phone_number, datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"), is_joined, datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")))
+        """, (telegram_id, username, first_name, last_name, phone_number, tehran_now().strftime("%Y-%m-%d %H:%M:%S"), is_joined, tehran_now().strftime("%Y-%m-%d %H:%M:%S")))
         await db.commit()
 
 async def get_agent(telegram_id):
@@ -500,7 +504,7 @@ async def add_agent_stats(telegram_id: int, username: str):
         """, (
             telegram_id,
             username,
-            datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            tehran_now().strftime("%Y-%m-%d %H:%M:%S")
         ))
         await db.commit()
 

@@ -11,6 +11,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import re
 from app.services.marzban_api import get_user_by_username,delete_user_from_marzban,delete_disabled_tests_in_marzban,create_Test_in_marzban
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import math
 import os
 from MessageAddresses import ANDROID_HELP_MESSAGE_Url
@@ -21,6 +22,8 @@ LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID"))
 ANDROID_HELP_MESSAGE_URL =ANDROID_HELP_MESSAGE_Url
 # حافظه موقت برای نگهداری انتخاب‌های کاربر
 user_choices = {}
+def tehran_now():
+    return datetime.now(ZoneInfo("Asia/Tehran"))
 
 @router.callback_query(F.data == "main_menu")
 async def show_main_menu(callback: types.CallbackQuery):
@@ -234,10 +237,10 @@ async def handle_menu_selection(callback: types.CallbackQuery):
                 # محاسبه روزهای باقی مانده
                 expire_ts = info.get("expire")
                 if expire_ts:
-                    from datetime import datetime
+                    
                     try:
                         expire_dt = datetime.fromtimestamp(int(expire_ts))
-                        remaining = (expire_dt - datetime.now()).days
+                        remaining = (expire_dt - tehran_now()).days
                     except:
                         remaining = "-"
                 else:
@@ -422,10 +425,10 @@ async def handle_menu_selection(callback: types.CallbackQuery):
             
         
         if expire_ts:
-            from datetime import datetime
+            
             expire_dt = datetime.fromtimestamp(expire_ts)
             expire_str = expire_dt.strftime("%Y-%m-%d %H:%M")
-            remaining_days = (expire_dt - datetime.now()).days
+            remaining_days = (expire_dt - tehran_now()).days
         else:
             remaining_days = "∞"
             expire_str = "∞"

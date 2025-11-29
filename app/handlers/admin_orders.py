@@ -6,7 +6,12 @@ import os
 from datetime import datetime, timedelta
 from app.services.database import add_data_added,add_agent_income,increment_agent_buys,add_buy_price,is_agent
 from app.services.database import get_user_price_for_plan,add_renew_price,add_gb_added
+from zoneinfo import ZoneInfo
+
 router = Router()
+
+def tehran_now():
+    return datetime.now(ZoneInfo("Asia/Tehran"))
 
 ORDERS_CHANNEL_ID = int(os.getenv("ORDERS_CHANNEL_ID"))
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
@@ -61,7 +66,7 @@ async def approve_order(callback: types.CallbackQuery):
             new_expire_ts = int((datetime.fromtimestamp(current_expire) + timedelta(seconds=add_seconds)).timestamp())
         else:
             
-            new_expire_ts = int((datetime.utcnow() + timedelta(seconds=add_seconds)).timestamp())
+            new_expire_ts = int((tehran_now()  + timedelta(seconds=add_seconds)).timestamp())
 
         # حجم جدید
         data_limit = int(size_gb * 1024 * 1024 * 1024)
@@ -222,7 +227,7 @@ async def approve_order(callback: types.CallbackQuery):
             devicelimit = order[10] if isinstance(order, (list, tuple)) else order["user_limit"]
             
             days = duration * 30
-            expire_timestamp = int((datetime.utcnow() + timedelta(days)).timestamp())
+            expire_timestamp = int((tehran_now() + timedelta(days)).timestamp())
             # تبدیل قیمت یا حجم به مشخصات پلن (موقت)
             # مثلا بر اساس نام کانفیگ، حجم و مدت مشخص کن
             sub_link = await create_user_in_marzban(username=Plan_name, data_limit_gb=data_limit, expire_days= days)

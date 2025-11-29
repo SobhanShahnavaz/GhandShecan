@@ -4,11 +4,15 @@ from aiogram import Router, types
 from datetime import datetime
 import os
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from zoneinfo import ZoneInfo
+
 
 from app.services.database import add_order, get_user_id
 from app.handlers.menu import user_choices  # اطلاعات موقت خرید
 
 router = Router()
+def tehran_now():
+    return datetime.now(ZoneInfo("Asia/Tehran"))
 
 ORDERS_CHANNEL_ID = int(os.getenv("ORDERS_CHANNEL_ID"))
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
@@ -68,7 +72,7 @@ async def handle_payment_receipt(message: types.Message):
         f"⏱ <b>محدودیت کاربر:</b> {maxdevtext} کاربره\n"
         f"📦 <b>حجم:</b> {size} گیگ\n"
         f"💰 <b>مبلغ:</b> {price:,} هزار تومان\n"
-        f"🕒 <b>تاریخ:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        f"🕒 <b>تاریخ:</b> {tehran_now().strftime('%Y-%m-%d %H:%M:%S')}"
     )
 
     # ساخت کیبورد برای مدیر

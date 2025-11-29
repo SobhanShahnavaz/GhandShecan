@@ -7,6 +7,10 @@ from aiogram.types import (
 )
 from datetime import datetime
 import os
+from zoneinfo import ZoneInfo
+
+def tehran_now():
+    return datetime.now(ZoneInfo("Asia/Tehran"))
 
 from app.services.database import add_user, get_user, set_user_joined, is_user_joined,is_agent
 from app.keyboards.main_menu import main_menu_keyboard,agent_menu_keyboard
@@ -144,7 +148,7 @@ async def get_contact(message: types.Message):
         first_name=user.first_name,
         last_name=user.last_name,
         phone_number=phone,
-        register_date=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        register_date=tehran_now().strftime("%Y-%m-%d %H:%M:%S")
     )
 
     await message.answer(
