@@ -265,10 +265,32 @@ async def handle_menu_selection(callback: types.CallbackQuery):
             reply_markup=keyboard
         )
         
-
-
-
     elif data == "test_account":
+        telegram_id = callback.from_user.id
+
+        agent = await is_agent(telegram_id)
+        is_agent_flag = 1 if agent else 0
+
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⬇️ دریافت اکانت",  callback_data="recieve_test_account")],
+                [InlineKeyboardButton(text="🔙 بازگشت به منو", callback_data="back_to_menu")]
+            ])
+
+        if agent:
+            await callback.answer(
+                "نماینده عزیز، شما میتوانید 5 عدد اکانت تست در روز دریافت کنید.\nهر اکانت یک گیگابایت حجم و 5 ساعت زمان دارد.",
+                reply_markup=keyboard
+            )
+        else:
+            await callback.answer(
+                "کاربر عزیز، شما میتوانید 2 عدد اکانت تست در ماه دریافت کنید.\nهر اکانت یک گیگابایت حجم و 1 ساعت زمان دارد.",
+                reply_markup=keyboard
+            )
+
+
+
+    elif data == "recieve_test_account":
         telegram_id = callback.from_user.id
 
         agent = await is_agent(telegram_id)
@@ -281,7 +303,8 @@ async def handle_menu_selection(callback: types.CallbackQuery):
             limit = 5  # daily
         else:
             limit = 2  # monthly
-
+        
+        
         if current_count >= limit:
             if agent:
                 await callback.answer(
@@ -294,6 +317,7 @@ async def handle_menu_selection(callback: types.CallbackQuery):
                     show_alert=True
                 )
             return
+        
 
         # Otherwise allowed!
         
