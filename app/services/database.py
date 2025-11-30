@@ -578,12 +578,19 @@ async def add_card(label, card_number, owner_name):
         )
         await db.commit()
 
+async def get_all_cards():
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "SELECT id, label, card_number, owner_name ,is_active FROM cards"
+        )
+        return await cursor.fetchall()
+
 async def get_active_card():
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute(
             "SELECT id, label, card_number, owner_name FROM cards WHERE is_active=1"
         )
-        return await cursor.fetchall()
+        return await cursor.fetchone()
 
 async def activate_card(card_id: int):
     async with aiosqlite.connect(DB_PATH) as db:

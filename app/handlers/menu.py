@@ -7,10 +7,11 @@ from app.services.database import get_marzban_accounts_by_user,get_agent,get_pla
 from app.services.database import add_agent, delete_agent_request, add_agent_stats, get_agent_stats, is_agent
 from app.services.database import get_plans,delete_plan,add_plan,get_available_months,get_sizes_for_month,get_plan_by_id
 from app.services.database import count_test_accounts,add_test_account,get_all_test_usernames
+from app.services.database import get_all_cards,add_card,get_active_card,activate_card
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import re
 from app.services.marzban_api import get_user_by_username,delete_user_from_marzban,delete_disabled_tests_in_marzban,create_Test_in_marzban
-from datetime import datetime
+from datetime import datetime,timezone
 from zoneinfo import ZoneInfo
 import math
 import os
@@ -241,7 +242,7 @@ async def handle_menu_selection(callback: types.CallbackQuery):
                 if expire_ts:
                     
                     try:
-                        expire_dt = datetime.fromtimestamp(int(expire_ts))
+                        expire_dt = datetime.fromtimestamp(int(expire_ts), ZoneInfo("Asia/Tehran"))
                         remaining = (expire_dt - tehran_now()).days
                     except:
                         remaining = "-"
@@ -403,10 +404,14 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         await callback.message.answer("✅ عملیات خرید لغو شد.\nمی‌تونی هر زمان خواستی دوباره از منوی خرید اقدام کنی.")
         
     elif data == "waiting_for_receipt":
+        card = await get_active_card()
+        card_number = card[2]
+        card_owner = card[3]
         await callback.message.answer(
             "📸 لطفاً تصویر رسید پرداخت خود را ارسال کنید.\n\n"
-            f"📸 لطفاً تصویر رسید پرداخت خود را ارسال کنید.\n\n" #this will be payment card and the name.
-            "در صورت لغو، از منوی اصلی گزینه‌ی دیگری را انتخاب کنید."
+            f"📸 <code>{card_number}</code>\n {card_owner} \n" #this will be payment card and the name.
+            "در صورت لغو، از منوی اصلی گزینه‌ی دیگری را انتخاب کنید.",
+            parse_mode="HTML"
         )
         await callback.answer()
 
@@ -448,13 +453,15 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         limit_gb = round(data_limit / (1024 ** 3), 2) if data_limit else "∞"
         created_at = info.get("created_at")
         expire_ts = info.get("expire")
-        
+        dt = datetime.fromisoformat(created_at)
+        dt_utc = dt.replace(tzinfo=timezone.utc)
+        created_at_tehran = dt_utc.astimezone(ZoneInfo("Asia/Tehran"))
         
             
         
         if expire_ts:
             
-            expire_dt = datetime.fromtimestamp(expire_ts)
+            expire_dt = datetime.fromtimestamp(expire_ts, ZoneInfo("Asia/Tehran"))
             expire_str = expire_dt.strftime("%Y-%m-%d %H:%M")
             remaining_days = (expire_dt - tehran_now()).days
         else:
@@ -464,8 +471,8 @@ async def handle_menu_selection(callback: types.CallbackQuery):
             remaining_gb = round(limit_gb - used_gb, 2)
         else:
             remaining_gb = "∞"
-        if created_at:
-            created_str = created_at.replace("T", " ").split(".")[0]
+        if created_at_tehran:
+            created_str = created_at_tehran.strftime("%Y-%m-%d %H:%M")
         else:
             created_str = "نامشخص"
         links = info.get("subscription_url")
@@ -583,15 +590,15 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         user_choices[telegram_id]["price"] = price
 
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📤 ارسال رسید", callback_data="waiting_for_receipt")],
+            [InlineKeyboardButton(text="💳 انتقال به کارت", callback_data="waiting_for_receipt")],
             [InlineKeyboardButton(text="❌ منصرف شدم", callback_data="cancel_payment")]
         ])
-
         await callback.message.answer(
             f"📌 حجم انتخاب‌شده: {gb}GB\n"
             f"💰 مبلغ: {price:,} هزار تومان\n\n"
-            "لطفاً رسید پرداخت را ارسال کنید:",
-            reply_markup=kb
+            "خب، روش پرداختت رو انتخاب کن",
+            reply_markup=kb,
+
         )
 
     elif data.startswith("renew_acc_"):
@@ -660,10 +667,16 @@ async def handle_menu_selection(callback: types.CallbackQuery):
             "max_device" : mdtext
 
         }
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💳 انتقال به کارت", callback_data="waiting_for_receipt")],
+            [InlineKeyboardButton(text="❌ منصرف شدم", callback_data="cancel_payment")]
+        ])
 
         await callback.message.answer(
             f"💳 مبلغ تمدید: {plan_price:,} هزار تومان\n"
-            "لطفاً رسید پرداخت را ارسال کنید.",
+            "لطفاً روش پرداخت را انتخاب کنید.",
+            reply_markup=kb,
+            parse_mode="HTML"
         )
 
     elif data.startswith("delete_acc_"):
@@ -1069,15 +1082,71 @@ async def handle_menu_selection(callback: types.CallbackQuery):
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[
                 [InlineKeyboardButton(text="📁 مشاهده کارت ها", callback_data="none")],
-                [InlineKeyboardButton(text="📥 افزودن کارت جدید", callback_data="none")],
-                [InlineKeyboardButton(text="💳 تغییر کارت فعال", callback_data="none")],
+                [InlineKeyboardButton(text="📥 افزودن کارت جدید", callback_data="admin_add_card")],
+                [InlineKeyboardButton(text="💳 تغییر کارت فعال", callback_data="admin_change_card")],
                 [InlineKeyboardButton(text="🔙 بازگشت", callback_data="axtar_menu")]
             ]
             )
         )
 
+    elif data == "admin_add_card":
+        admin_user = callback.from_user.id
+        user_choices[admin_user] = {"action": "adding_card", "step": 1}
+
+        await callback.message.edit_text(
+            "🏷 یک لیبل برای کارت بنویسید(فقط به شما نمایش داده میشود):\n مثال:ملت من، بلوبانک دو.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="❌ لغو", callback_data="axtar_menu")]]
+            )
+        )
+    
+    
+    elif data == "admin_change_card":
+        admin_user = callback.from_user.id
+        cards = await get_all_cards()
+       
+        if not cards:
+            await callback.message.edit_text("خطا در بارگذاری کارت ها، به سازنده پیام بدهید")
+            return
+        
+        kb = InlineKeyboardMarkup(inline_keyboard=[])
+
+        kb.inline_keyboard.append([
+            InlineKeyboardButton(text="لیبل", callback_data="none"),
+            InlineKeyboardButton(text="وضعیت", callback_data="none"),
+            
+        ])
+
+        for c in cards:
+            card_id, label, number, owner,activity = c
+            if activity:
+                kb.inline_keyboard.append([
+                InlineKeyboardButton(text=f"{label}", callback_data="none"),
+                InlineKeyboardButton(text=f"ON", callback_data="none")
+            ])
+            else:
+                kb.inline_keyboard.append([
+                    InlineKeyboardButton(text=f"{label}", callback_data="none"),
+                    InlineKeyboardButton(text=f"OFF", callback_data=f"activate_card_{card_id}")
+                ])
+
+        kb.inline_keyboard.append([
+            InlineKeyboardButton(text="🔙 بازگشت", callback_data="axtar_menu")
+        ])
+        await callback.message.edit_text("📦 لیست کارت ها:(در هر زمان فقط یک کارت میتواند فعال باشد)\n برای فعال سازی یک کارت روی وضعیت آن کلیک کنید.", reply_markup=kb)
+    
+    elif data.startswith("activate_card_"):
+        card_id = int(data.split("_")[2])
+        try: 
+            await activate_card(card_id)
+            await callback.answer("✔️ کارت با موفقیت فعال شد!" , show_alert=True)
+            return
+        except:
+            await callback.answer("❌ نتوانستم کارت را فعال کنم، به سازنده پیام بده!" , show_alert=True)
+            return
 
 
+        
     
     elif data == "remove_disabled_tests":
         usernames = await get_all_test_usernames()
@@ -1111,6 +1180,9 @@ async def handle_text_inputs(message: types.Message):
     # Admin adding plan
     if action == "adding_plan":
         return await handle_admin_add_plan_input(message)
+    
+    if action == "adding_card":
+        return await handle_admin_add_card_input(message)
 
     # Other text-based actions can be added here later
 
@@ -1198,7 +1270,66 @@ async def handle_admin_add_plan_input(message: types.Message):
         )
         return
 
+async def handle_admin_add_card_input(message: types.Message):
+    user_id = message.from_user.id
+    state = user_choices[user_id]
 
+    step = state.get("step", 1)
+
+    # STEP 1 → read GB
+    if step == 1:
+        try:
+            label = str(message.text)
+        except:
+            await message.answer("❌ خطای پردازش متن. دوباره وارد کنید:")
+            return
+
+        state["card_label"] = label
+        state["step"] = 2
+
+        await message.answer("💳 شماره کارت را وارد کنید:\n پیوسته و بدون فاصله مثل:\n 6104338391916565")
+        return
+    if step == 2:
+        try:
+            card_number = str(message.text)
+        except:
+            await message.answer("❌ خطای پردازش متن. دوباره وارد کنید:")
+            return
+
+        state["card_number"] = card_number
+        state["step"] = 3
+
+        await message.answer("👤 نام و نام خانوادگی صاحب کارت را وارد کنید: \n این نام به کاربران نمایش داده میشود.")
+        return
+
+    if step == 3:
+        try:
+            card_owner = str(message.text)
+        except:
+            await message.answer("❌ خطای پردازش متن. دوباره وارد کنید:")
+            return
+
+        
+
+        card_label = state["card_label"]
+        card_number = state["card_number"]
+        
+
+        await add_card(card_label, card_number, card_owner)
+
+        # clear state
+        user_choices.pop(user_id, None)
+
+        await message.answer(
+            "✔ کارت جدید با موفقیت ثبت شد.\n\n"
+            f"📦 لیبل: {card_label}\n"
+            f"⏳ شماره: {card_number}\n"
+            f"💰 مالک: {card_owner}\n",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="🔙 بازگشت", callback_data="axtar_menu")]]
+            )
+        )
+        return
 
 async def handle_config_name(message: types.Message):
     user_id = message.from_user.id
@@ -1222,16 +1353,18 @@ async def handle_config_name(message: types.Message):
     name = data["config_name"]
     max_dev = data["max_device"]
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📤 ارسال رسید", callback_data="waiting_for_receipt")],
+        [InlineKeyboardButton(text="💳 انتقال به کارت", callback_data="waiting_for_receipt")],
         [InlineKeyboardButton(text="❌ منصرف شدم", callback_data="cancel_payment")]
     ])
-    
+    card = await get_active_card()
+    card_number = card[2]
+    card_owner = card[3]
     await message.answer(
         f"✅ نام کانفیگ: <b>{name}</b>, {max_dev} کاربره\n"
         f"⏱ مدت: {duration} ماهه\n"
         f"📦 حجم: {size} گیگ\n"
         f"💰 مبلغ: {price:,} هزار تومان\n\n"
-        "حالا لطفاً رسید پرداخت رو ارسال کن:",
+        "از چه روشی میخوای پرداخت کنی؟",
         parse_mode="HTML",
         reply_markup=keyboard
     )

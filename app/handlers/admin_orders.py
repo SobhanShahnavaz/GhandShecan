@@ -63,7 +63,7 @@ async def approve_order(callback: types.CallbackQuery):
         
         add_seconds = months * 30 * 24 * 60 * 60
         if current_expire:
-            new_expire_ts = int((datetime.fromtimestamp(current_expire) + timedelta(seconds=add_seconds)).timestamp())
+            new_expire_ts = int((datetime.fromtimestamp(current_expire, ZoneInfo("Asia/Tehran")) + timedelta(seconds=add_seconds)).timestamp())
         else:
             
             new_expire_ts = int((tehran_now()  + timedelta(seconds=add_seconds)).timestamp())
