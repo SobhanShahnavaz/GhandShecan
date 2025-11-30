@@ -20,6 +20,8 @@ from MessageAddresses import ANDROID_HELP_MESSAGE_Url
 router = Router()
 ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
 LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID"))
+SUPPORT_ACC_ID = int(os.getenv("SUPPORT_ACC_ID"))
+
 ANDROID_HELP_MESSAGE_URL =ANDROID_HELP_MESSAGE_Url
 # حافظه موقت برای نگهداری انتخاب‌های کاربر
 user_choices = {}
@@ -380,7 +382,14 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         await callback.answer("📲 نصب برنامه‌ها به‌زودی اضافه می‌شود!", show_alert=True)
 
     elif data == "support":
-        await callback.answer("🧑‍💬 پشتیبانی آنلاین به‌زودی فعال می‌شود.", show_alert=True)
+        sup_link = SUPPORT_ACC_ID
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📫 ارتباط با پشتیبان", url=f"tg://user?id={sup_link}")],
+                [InlineKeyboardButton(text="🔙 بازگشت به منو", callback_data="back_to_menu")]
+            ])
+        await callback.message.edit_text("با زدن روی لینک زیر میتوانید با پشتیبانی در ارتباط باشید.",
+        parse_mode="HTML",
+        reply_markup=keyboard)
 
     elif data == "referrals":
         await callback.answer("👥 بخش زیرمجموعه‌گیری به‌زودی می‌آید!", show_alert=True)
