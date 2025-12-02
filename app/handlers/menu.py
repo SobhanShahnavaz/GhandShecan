@@ -8,6 +8,7 @@ from app.services.database import add_agent, delete_agent_request, add_agent_sta
 from app.services.database import get_plans,delete_plan,add_plan,get_available_months,get_sizes_for_month,get_plan_by_id
 from app.services.database import count_test_accounts,add_test_account,get_all_test_usernames
 from app.services.database import get_all_cards,add_card,get_active_card,activate_card
+from app.services.database import get_all_tutorials,update_tutorial_link,get_tutorials_by_device
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import re
 from app.services.marzban_api import get_user_by_username,delete_user_from_marzban,delete_disabled_tests_in_marzban,create_Test_in_marzban
@@ -15,14 +16,13 @@ from datetime import datetime,timezone
 from zoneinfo import ZoneInfo
 import math
 import os
-from MessageAddresses import ANDROID_HELP_MESSAGE_Url
+
 
 router = Router()
 ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
 LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID"))
 SUPPORT_ACC_ID = int(os.getenv("SUPPORT_ACC_ID"))
 
-ANDROID_HELP_MESSAGE_URL =ANDROID_HELP_MESSAGE_Url
 # حافظه موقت برای نگهداری انتخاب‌های کاربر
 user_choices = {}
 def tehran_now():
@@ -147,7 +147,7 @@ async def handle_menu_selection(callback: types.CallbackQuery):
 
         kb.inline_keyboard.append([
             InlineKeyboardButton(text="🔙 بازگشت", callback_data="buy_config"),
-            InlineKeyboardButton(text="📞 حجم بیشتر → پشتیبانی", url="https://t.me/freeedomarea")
+            InlineKeyboardButton(text="📞 حجم بیشتر ", url="https://t.me/freeedomarea")
         ])
         
         user_choices[telegram_id] = {
@@ -352,9 +352,17 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         except Exception as e:
             await callback.message.answer(f"❌ خطا در ساخت اکانت تست:\n{e}")
             return
-
+        device_android = await get_tutorials_by_device("Usage","Android")
+        
+        ANDROID_MESSAGE_URL = device_android[4]
+        device_ios = await get_tutorials_by_device("Usage","IOS")
+        IOS_MESSAGE_URL = device_ios[4]
+        device_windows = await get_tutorials_by_device("Usage","Windows")
+        WINDOWS_MESSAGE_URL = device_windows[4]
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="📘 نحوه استفاده از لینک", url=ANDROID_HELP_MESSAGE_URL)],
+                [InlineKeyboardButton(text="📘 نحوه استفاده اندروید", url=ANDROID_MESSAGE_URL)],
+                [InlineKeyboardButton(text="📘 نحوه استفاده آیفون", url=IOS_MESSAGE_URL)],
+                [InlineKeyboardButton(text="📘 نحوه استفاده ویندوز", url=WINDOWS_MESSAGE_URL)],
                 [InlineKeyboardButton(text="🔙 بازگشت به منو", callback_data="back_to_menu_without_del")]
             ])
         
@@ -369,6 +377,7 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         )
 
         await callback.message.answer(msg, parse_mode="HTML",reply_markup=keyboard)
+        return
 
 
 
@@ -410,7 +419,10 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         user_choices.pop(callback.from_user.id, None)
         await callback.answer()                
         await callback.message.delete() 
-        await callback.message.answer("✅ عملیات خرید لغو شد.\nمی‌تونی هر زمان خواستی دوباره از منوی خرید اقدام کنی.")
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 بازگشت به منو", callback_data="back_to_menu")]
+            ])
+        await callback.message.answer("✅ عملیات خرید لغو شد.\nمی‌تونی هر زمان خواستی دوباره از منوی خرید اقدام کنی.",reply_markup=keyboard)
         
     elif data == "waiting_for_receipt":
         card = await get_active_card()
@@ -1082,6 +1094,68 @@ async def handle_menu_selection(callback: types.CallbackQuery):
             )
         )
     
+
+    elif data == "set_tutor_links":
+        admin_user = callback.from_user.id
+        tutorials = await get_all_tutorials()
+
+        kb = InlineKeyboardMarkup(inline_keyboard=[])
+
+        kb.inline_keyboard.append([
+            InlineKeyboardButton(text="نوع", callback_data="none"),
+            InlineKeyboardButton(text="مبحث", callback_data="none"),
+            InlineKeyboardButton(text="سیستم", callback_data="none"),
+            InlineKeyboardButton(text="لینک", callback_data="none"),
+            
+        ])
+
+        for t in tutorials:
+            tut_id, topic, type_, device ,link = t
+            if type_ == "Usage":
+                type_text = "آموزش"
+            elif type_ == "Install":
+                type_text = "دانلود"
+            if topic == "Sublink":
+                topic_text = "لینک ساب"
+            else:
+                topic_text = str(topic)
+            if link:
+                message_url= link
+                linktext ="Go"
+                kb.inline_keyboard.append([
+                InlineKeyboardButton(text=f"{type_text}", callback_data=f"changelink_{tut_id}"),
+                InlineKeyboardButton(text=f"{topic_text}", callback_data="none"),
+                InlineKeyboardButton(text=f"{device}", callback_data="none"),
+                InlineKeyboardButton(text=f"{linktext}", url=message_url ),
+                ])
+            else: 
+                linktext = "No"
+                kb.inline_keyboard.append([
+                InlineKeyboardButton(text=f"{type_text}", callback_data=f"changelink_{tut_id}"),
+                InlineKeyboardButton(text=f"{topic_text}", callback_data="none"),
+                InlineKeyboardButton(text=f"{device}", callback_data="none"),
+                InlineKeyboardButton(text=f"{linktext}", callback_data="none" ),
+                ])
+            
+            
+            
+
+        kb.inline_keyboard.append([
+            InlineKeyboardButton(text="🔙 بازگشت", callback_data="axtar_menu")
+        ]) 
+        await callback.message.edit_text("🔗 لیست لینک های آموزشی:", reply_markup=kb)   
+
+    elif data.startswith("changelink_"):
+        tut_id = int(data.split("_")[1])
+        admin_user = callback.from_user.id
+        user_choices[admin_user] = {"action": "chnge_tutor_link", "Link_id":tut_id}
+        await callback.message.edit_text(
+            "📎 لینک جدید را ارسال کنید:",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="❌ لغو", callback_data="axtar_menu")]]
+            )
+        )
+    
     elif data == "admin_manage_cards":
         admin_user = callback.from_user.id
         admin_name = callback.from_user.first_name
@@ -1170,7 +1244,8 @@ async def handle_menu_selection(callback: types.CallbackQuery):
 
 
     elif data == "axtar_menu":
-        await callback.message.edit_text("🛠 پنل مدیریت", reply_markup=admin_menu_keyboard())
+        modir = callback.from_user.first_name
+        await callback.message.edit_text(f"👑 سلام {modir} عزیز، خوش آمدید. پنل مخصوص شما:", reply_markup=admin_menu_keyboard())
 
 
 @router.message(F.text)
@@ -1181,7 +1256,7 @@ async def handle_text_inputs(message: types.Message):
         return
 
     action = user_choices[user_id].get("action")
-
+     
     # Config name input
     if action == "buy":
         return await handle_config_name(message)
@@ -1189,11 +1264,35 @@ async def handle_text_inputs(message: types.Message):
     # Admin adding plan
     if action == "adding_plan":
         return await handle_admin_add_plan_input(message)
+    # Other text-based actions can be added here later
+
+    if action == "chnge_tutor_link":
+        tut_id = user_choices[user_id].get("Link_id")
+        return await handle_admin_change_tutor_link(message,tut_id)
     
     if action == "adding_card":
         return await handle_admin_add_card_input(message)
 
-    # Other text-based actions can be added here later
+async def handle_admin_change_tutor_link(message:types.Message, link_id :int):
+    user_id = message.from_user.id
+    LinkToChange= link_id
+    try:
+        link = str(message.text)
+    except:
+        await message.answer("❌ خطای پردازش متن. دوباره وارد کنید:")
+        return
+    try:
+        await update_tutorial_link(LinkToChange,link)
+
+    except:
+        await message.answer("❌ خطای عملیات در پایگاه داده!")
+    await message.answer(
+            "✔ لینک با موفقیت آپدیت شد.\n\n",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="🔙 بازگشت", callback_data="axtar_menu")]]
+            )
+        )
+    return
 
 
 async def handle_admin_add_plan_input(message: types.Message):

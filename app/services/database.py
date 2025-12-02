@@ -152,6 +152,17 @@ async def init_db():
             )
             """)
         await db.commit()
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS tutorial_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                Topic TEXT,
+                Type TEXT,
+                Device TEXT,
+                Link TEXT
+            )
+            """)
+        await db.commit()
         
         
 
@@ -648,4 +659,59 @@ async def get_all_test_usernames():
 
     return [row[0] for row in rows if row[0]]
 
+async def add_tutorial_link(topic: str, type_: str, device: str, link: str):
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute(
+            """
+            INSERT INTO tutorial_links (Topic, Type, Device, Link)
+            VALUES (?, ?, ?, ?)
+            """,
+            (topic, type_, device, link)
+        )
+        await conn.commit()
+async def get_all_tutorials():
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cursor = await conn.execute("SELECT * FROM tutorial_links")
+        rows = await cursor.fetchall()
+    return rows
+
+
+async def get_tutorials_by_type(type_: str):
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cursor = await conn.execute(
+            "SELECT * FROM tutorial_links WHERE Type = ?",
+            (type_,)
+        )
+        return await cursor.fetchall()
+
+async def get_tutorials_by_device(type_,device: str):
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cursor = await conn.execute(
+            "SELECT * FROM tutorial_links WHERE Type = ? AND Device = ?",
+            (type_,device)
+        )
+        rows = await cursor.fetchone()
+    return rows
+
+
+async def get_tutorials_by_triple(topic,type_,device: str):
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cursor = await conn.execute(
+            "SELECT * FROM tutorial_links WHERE Topic = ? AND Type = ? AND Device = ?",
+            (topic,type_,device)
+        )
+        rows = await cursor.fetchall()
+    return rows
+
+async def update_tutorial_link(tut_id: int, new_link: str):
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute(
+            """
+            UPDATE tutorial_links
+            SET Link = ?
+            WHERE id = ?
+            """,
+            (new_link, tut_id)
+        )
+        await conn.commit()
 

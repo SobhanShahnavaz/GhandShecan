@@ -12,6 +12,6 @@ ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
 async def admin_panel(message: types.Message):
     if message.from_user.id != ADMIN_ID:  # replace with your constant
         return
-
-    await message.answer("🛠 پنل مدیریت", reply_markup=admin_menu_keyboard())
+    modir = message.from_user.first_name
+    await message.answer(f"👑 سلام {modir} عزیز، خوش آمدید. پنل مخصوص شما:", reply_markup=admin_menu_keyboard())
 

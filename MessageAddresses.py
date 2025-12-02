@@ -1,3 +1,0 @@
-ANDROID_HELP_MESSAGE_Url = "https://t.me/wvpnw/556"
-IOS_HELP_MESSAGE_Url = ""
-WINDOWS_HELP_MESSAGE_Url = ""

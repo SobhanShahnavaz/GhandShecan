@@ -6,6 +6,7 @@ import os
 from datetime import datetime, timedelta
 from app.services.database import add_data_added,add_agent_income,increment_agent_buys,add_buy_price,is_agent
 from app.services.database import get_user_price_for_plan,add_renew_price,add_gb_added
+from app.services.database import get_tutorials_by_device
 from zoneinfo import ZoneInfo
 
 router = Router()
@@ -15,7 +16,7 @@ def tehran_now():
 
 ORDERS_CHANNEL_ID = int(os.getenv("ORDERS_CHANNEL_ID"))
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
-HELP_MESSAGE_URL = "https://t.me/wvpnw/556"
+
 
 @router.callback_query(lambda c: c.data.startswith("order_approve_"))
 async def approve_order(callback: types.CallbackQuery):
@@ -232,8 +233,16 @@ async def approve_order(callback: types.CallbackQuery):
             # مثلا بر اساس نام کانفیگ، حجم و مدت مشخص کن
             sub_link = await create_user_in_marzban(username=Plan_name, data_limit_gb=data_limit, expire_days= days)
             await add_marzban_account(user_id,Plan_name,"Active",expire_timestamp,0,sub_link,duration,data_limit,devicelimit)
+            device_android = await get_tutorials_by_device("Usage","Android")
+            ANDROID_MESSAGE_URL = device_android[4]
+            device_ios = await get_tutorials_by_device("Usage","IOS")
+            IOS_MESSAGE_URL = device_ios[4]
+            device_windows = await get_tutorials_by_device("Usage","Windows")
+            WINDOWS_MESSAGE_URL = device_windows[4]
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="📘 نحوه استفاده از لینک", url=HELP_MESSAGE_URL)],
+                [InlineKeyboardButton(text="📘 نحوه استفاده اندروید", url=ANDROID_MESSAGE_URL)],
+                [InlineKeyboardButton(text="📘 نحوه استفاده آیفون", url=IOS_MESSAGE_URL)],
+                [InlineKeyboardButton(text="📘 نحوه استفاده ویندوز", url=WINDOWS_MESSAGE_URL)],
                 [InlineKeyboardButton(text="🔙 بازگشت به منو", callback_data="back_to_menu_without_del")]
             ])
             await callback.bot.send_message(
