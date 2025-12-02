@@ -381,14 +381,28 @@ async def handle_menu_selection(callback: types.CallbackQuery):
 
 
 
-    elif data == "wallet":
+    elif data == "charge_wallet":
         await callback.answer("💰 مدیریت کیف پول به‌زودی فعال می‌شود!", show_alert=True)
 
     elif data == "profile":
         await callback.answer("👤 نمایش مشخصات کاربری در حال آماده‌سازی است.", show_alert=True)
 
     elif data == "apps":
-        await callback.answer("📲 نصب برنامه‌ها به‌زودی اضافه می‌شود!", show_alert=True)
+        device_android = await get_tutorials_by_device("Install","Android")
+        ANDROID_APP_URL = device_android[4]
+        device_ios = await get_tutorials_by_device("Install","IOS")
+        IOS_APP_URL = device_ios[4]
+        device_windows = await get_tutorials_by_device("Install","Windows")
+        WINDOWS_APP_URL = device_windows[4]
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📱 دانلود برنامه اندروید", url=ANDROID_APP_URL)],
+                [InlineKeyboardButton(text="📱 دانلود برنامه آیفون", url=IOS_APP_URL)],
+                [InlineKeyboardButton(text="💻 دانلود برنامه ویندوز", url=WINDOWS_APP_URL)],
+                [InlineKeyboardButton(text="🔙 بازگشت به منو", callback_data="back_to_menu")]
+            ])
+        await callback.message.edit_text("📲 با زدن روی هرکدام از لینک های زیر میتوانید نرم افزار مورد نیاز را دانلود و سپس نصب کنید.",
+        parse_mode="HTML",
+        reply_markup=keyboard)
 
     elif data == "support":
         sup_link = SUPPORT_ACC_ID
