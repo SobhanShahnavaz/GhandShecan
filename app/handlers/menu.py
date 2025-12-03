@@ -9,6 +9,7 @@ from app.services.database import get_plans,delete_plan,add_plan,get_available_m
 from app.services.database import count_test_accounts,add_test_account,get_all_test_usernames
 from app.services.database import get_all_cards,add_card,get_active_card,activate_card
 from app.services.database import get_all_tutorials,update_tutorial_link,get_tutorials_by_device
+from app.services.database import get_user_stats
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import re
 from app.services.marzban_api import get_user_by_username,delete_user_from_marzban,delete_disabled_tests_in_marzban,create_Test_in_marzban
@@ -385,7 +386,52 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         await callback.answer("💰 مدیریت کیف پول به‌زودی فعال می‌شود!", show_alert=True)
 
     elif data == "profile":
-        await callback.answer("👤 نمایش مشخصات کاربری در حال آماده‌سازی است.", show_alert=True)
+        telegram_id = callback.from_user.id
+        userdataone = await get_user(telegram_id)
+        username = callback.from_user.username
+        name = callback.from_user.first_name
+        phone_number= userdataone[5]
+        userstats = await get_user_stats(telegram_id)
+        referalcode = userstats[2]
+        num_orders = userstats[3]
+        #number_of_referals = ?
+        marzban_accounts = await get_marzban_accounts_by_user(telegram_id)
+        marzban_accounts_count = len(marzban_accounts)
+        sum_transactions = userstats[4]
+        num_transactions = userstats[5]
+        balance = userdataone[9]
+        date = tehran_now().strftime('%Y-%m-%d')
+        time = tehran_now().strftime('%H:%M:%S')
+
+        TextP1 = (
+            f"<blockquote>🪪 مشخصات شما\n"
+            f"🫆 شناسه: {telegram_id}\n"
+            f"🆔 نام کاربری: {username}\n"
+            f"👤 نام: {name}\n"
+            f"📞 شماره تلفن: {phone_number}\n"
+            f"⛓️ کد دعوت شما: <code>{referalcode}</code></blockquote>\n\n"
+        )
+        TextP2 = (
+            f"<blockquote>📊 تراکنش‌ها\n"
+            f"🧾 تعداد سفارشات: {num_orders}\n"
+            f"👥 تعداد زیرمجموعه: {0}\n"
+            f"🟢 سرویس های فعال: {marzban_accounts_count}\n"
+            f"💸 تراکنش کل: {sum_transactions}\n"
+            f"🧮 تعداد تراکنش ها: {num_transactions}\n\n"
+            f"<b>💰 موجودی: {balance }</b></blockquote>\n\n"
+        )
+        TextP3 = (
+            f"<i>🌘 تاریخ: {date}\n"
+            f"⌚ ساعت: {time}\n</i>"
+        )
+        Text = TextP1 + TextP2 + TextP3
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 بازگشت به منو", callback_data="back_to_menu")]
+            ])
+        await callback.message.edit_text(text= Text,
+        parse_mode="HTML",
+        reply_markup=keyboard)
+
 
     elif data == "apps":
         device_android = await get_tutorials_by_device("Install","Android")

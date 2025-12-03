@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 def tehran_now():
     return datetime.now(ZoneInfo("Asia/Tehran"))
-
+from app.services.database import generate_unique_referral,create_user_stats
 from app.services.database import add_user, get_user, set_user_joined, is_user_joined,is_agent
 from app.keyboards.main_menu import main_menu_keyboard,agent_menu_keyboard
 
@@ -141,7 +141,13 @@ async def callback_check_join(callback: types.CallbackQuery):
 async def get_contact(message: types.Message):
     phone = message.contact.phone_number
     user = message.from_user
-
+    if not phone.startswith("98"):
+        await message.answer(
+            "❌ با شماره مجازی قادر به ثبت نام و دریافت خدمات نمی باشید!\n"
+           
+        )
+        return
+    
     await add_user(
         telegram_id=user.id,
         username=user.username,
@@ -150,6 +156,9 @@ async def get_contact(message: types.Message):
         phone_number=phone,
         register_date=tehran_now().strftime("%Y-%m-%d %H:%M:%S")
     )
+    ref_code = await generate_unique_referral()
+    await create_user_stats(user.id, ref_code)
+
 
     await message.answer(
         f"✅ شماره‌ت ({phone}) با موفقیت ثبت شد!\n"

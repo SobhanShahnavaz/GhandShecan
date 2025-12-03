@@ -1,5 +1,7 @@
 import aiosqlite
 import os
+import random
+import string
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import time
@@ -24,7 +26,8 @@ async def init_db():
                 phone_number TEXT,
                 register_date TEXT,
                 is_joined INTEGER DEFAULT 0,
-                joined_at TEXT
+                joined_at TEXT,
+                balance INTEGER DEFAULT 0
             )
         """)
 
@@ -163,12 +166,27 @@ async def init_db():
             )
             """)
         await db.commit()
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS user_stats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_id INTEGER UNIQUE,
+                referral_code TEXT UNIQUE,
+                approved_buy_count INTEGER DEFAULT 0,
+                sum_transactions INTEGER DEFAULT 0,
+                num_transactions INTEGER DEFAULT 0
+            );
+
+            """)
+        await db.commit()
+
+
         
         
 
 
         
-        
+      
 
 
 # 🧩 کاربران تلگرام
@@ -652,6 +670,15 @@ async def count_test_accounts(telegram_id: int, is_agent: int):
         row = await cursor.fetchone()
         return row[0]
 
+async def delete_test_account_by_username(username: str):
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute(
+            "DELETE FROM test_accounts WHERE username = ?",
+            (username,)
+        )
+        await conn.commit()
+
+
 async def get_all_test_usernames():
     async with aiosqlite.connect(DB_PATH) as conn:
         cursor = await conn.execute("SELECT username FROM test_accounts")
@@ -714,4 +741,54 @@ async def update_tutorial_link(tut_id: int, new_link: str):
             (new_link, tut_id)
         )
         await conn.commit()
+
+
+async def create_user_stats(telegram_id: int, referral_code: str):
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute("""
+            INSERT OR IGNORE INTO user_stats 
+            (telegram_id, referral_code)
+            VALUES (?, ?)
+        """, (telegram_id, referral_code))
+        await conn.commit()
+
+async def get_user_stats(telegram_id: int):
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cursor = await conn.execute(
+            "SELECT * FROM user_stats WHERE telegram_id = ?",
+            (telegram_id,)
+        )
+        return await cursor.fetchone()
+
+async def increase_approved_buy(telegram_id: int):
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute("""
+            UPDATE user_stats 
+            SET approved_buy_count = approved_buy_count + 1
+            WHERE telegram_id = ?
+        """, (telegram_id,))
+        await conn.commit()
+
+async def add_transaction(telegram_id: int, amount: int):
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute("""
+            UPDATE user_stats 
+            SET 
+                sum_transactions = sum_transactions + ?,
+                num_transactions = num_transactions + 1
+            WHERE telegram_id = ?
+        """, (amount, telegram_id))
+        await conn.commit()
+
+async def generate_unique_referral():
+    while True:
+        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.execute(
+                "SELECT 1 FROM user_stats WHERE referral_code = ?",
+                (code,)
+            )
+            if not await cursor.fetchone():
+                return code
+
 

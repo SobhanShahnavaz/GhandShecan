@@ -4,7 +4,7 @@ import asyncio
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from zoneinfo import ZoneInfo
-
+from app.services.database import delete_test_account_by_username
 def tehran_now():
     return datetime.now(ZoneInfo("Asia/Tehran"))
 
@@ -343,8 +343,9 @@ async def delete_disabled_tests_in_marzban(usernames: list):
                 continue
 
             # delete if disabled
-            if user_data.get("status") == "disabled":
+            if user_data.get("status") == "expired":
                 await delete_user_from_marzban(username)
+                await delete_test_account_by_username(username)
                 print(f"🗑 Deleted disabled test user: {username}")
 
         except Exception as e:
