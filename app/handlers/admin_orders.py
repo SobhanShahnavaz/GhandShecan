@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from app.services.database import add_data_added,add_agent_income,increment_agent_buys,add_buy_price,is_agent
 from app.services.database import get_user_price_for_plan,add_renew_price,add_gb_added
 from app.services.database import get_tutorials_by_device
+from app.services.database import increase_approved_buy, add_transaction
 from zoneinfo import ZoneInfo
 
 router = Router()
@@ -118,6 +119,8 @@ async def approve_order(callback: types.CallbackQuery):
             "✅ تمدید سرویس شما با موفقیت انجام شد!",
             reply_markup=keyboard
         )
+        #افزایش آمار کاربر
+        await add_transaction(user_id,price)
         if await is_agent(user_id):
             if devicelimit == 3:
                 Multip = 2
@@ -192,6 +195,9 @@ async def approve_order(callback: types.CallbackQuery):
             ADMIN_ID,
             "سفارش اضافه‌حجم با موفقیت تأیید شد ✅"
         )
+        #افزایش آمار کاربر
+        await add_transaction(user_id,price)
+
         if await is_agent(user_id):
             
             
@@ -263,6 +269,10 @@ async def approve_order(callback: types.CallbackQuery):
                 ADMIN_ID,  
                 "خطایی در روند تایید رخ داد. لطفا خطاهارا بررسی کنید!")
             print(f"[Marzban Error] {e}")
+        #افزایش آمار کاربر
+        await increase_approved_buy(user_id)
+        await add_transaction(user_id,price)
+        
         if await is_agent(user_id):
             if devicelimit == 3:
                 Multip = 2
@@ -277,7 +287,7 @@ async def approve_order(callback: types.CallbackQuery):
 
             # جمع مبلغ خرید
             await add_buy_price(user_id, price)
-
+            
             # درآمد نماینده 
             await add_agent_income(user_id, revenue)
         try:

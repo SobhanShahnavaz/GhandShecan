@@ -230,6 +230,19 @@ async def set_user_joined(telegram_id: int, joined: bool):
         )
         await db.commit()
 
+async def add_balance_by_telegram_id(telegram_id: int, amount: int):
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute(
+            """
+            UPDATE telegram_users
+            SET balance = balance + ?
+            WHERE telegram_id = ?
+            """,
+            (amount, telegram_id)
+        )
+        await conn.commit()
+
+
 async def is_user_joined(telegram_id: int) -> bool:
     """بررسی وضعیت عضویت"""
     async with aiosqlite.connect(DB_PATH) as db:

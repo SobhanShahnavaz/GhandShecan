@@ -9,7 +9,7 @@ from app.services.database import get_plans,delete_plan,add_plan,get_available_m
 from app.services.database import count_test_accounts,add_test_account,get_all_test_usernames
 from app.services.database import get_all_cards,add_card,get_active_card,activate_card
 from app.services.database import get_all_tutorials,update_tutorial_link,get_tutorials_by_device
-from app.services.database import get_user_stats
+from app.services.database import get_user_stats,add_balance_by_telegram_id
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import re
 from app.services.marzban_api import get_user_by_username,delete_user_from_marzban,delete_disabled_tests_in_marzban,create_Test_in_marzban
@@ -298,15 +298,21 @@ async def handle_menu_selection(callback: types.CallbackQuery):
 
     elif data == "recieve_test_account":
         telegram_id = callback.from_user.id
+        if telegram_id == ADMIN_ID:
+            is_admin = True
+        else:
+            is_admin = False
 
         agent = await is_agent(telegram_id)
-        is_agent_flag = 1 if agent else 0
+        is_agent_flag = 1 if agent or is_admin else 0
 
         current_count = await count_test_accounts(telegram_id, is_agent_flag)
 
         # LIMITS
         if agent:
             limit = 5  # daily
+        elif is_admin:
+            limit = 99
         else:
             limit = 2  # monthly
         
@@ -315,6 +321,11 @@ async def handle_menu_selection(callback: types.CallbackQuery):
             if agent:
                 await callback.answer(
                     "⛔️ سقف دریافت اکانت تست امروز پر شده است. (۵ تا در روز)",
+                    show_alert=True
+                )
+            elif is_admin:
+                await callback.answer(
+                    "⛔️ عامو بیشین چخبرته",
                     show_alert=True
                 )
             else:
@@ -403,13 +414,21 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         date = tehran_now().strftime('%Y-%m-%d')
         time = tehran_now().strftime('%H:%M:%S')
 
+        if telegram_id == ADMIN_ID:
+            is_admin = True
+        else:
+            is_admin = False
+        isAgent = await is_agent(telegram_id)
+        RTL = "\u202B"  # Right-to-Left Embedding
+        POP = "\u202C"  # End Direction
+
         TextP1 = (
-            f"<blockquote>🪪 مشخصات شما\n"
-            f"🫆 شناسه: {telegram_id}\n"
-            f"🆔 نام کاربری: {username}\n"
-            f"👤 نام: {name}\n"
-            f"📞 شماره تلفن: {phone_number}\n"
-            f"⛓️ کد دعوت شما: <code>{referalcode}</code></blockquote>\n\n"
+            f"{RTL}<blockquote>🪪 مشخصات شما{POP}\n"
+            f"{RTL}🫆 شناسه: {telegram_id}{POP}\n"
+            f"{RTL}🆔 نام کاربری: @{username}{POP}\n"
+            f"{RTL}👤 نام: {name}{POP}\n"
+            f"{RTL}📞 شماره تلفن: {phone_number}{POP}\n"
+            f"{RTL}⛓️ کد دعوت شما: <code>{referalcode}</code>{POP}</blockquote>\n\n"
         )
         TextP2 = (
             f"<blockquote>📊 تراکنش‌ها\n"
@@ -425,9 +444,18 @@ async def handle_menu_selection(callback: types.CallbackQuery):
             f"⌚ ساعت: {time}\n</i>"
         )
         Text = TextP1 + TextP2 + TextP3
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔙 بازگشت به منو", callback_data="back_to_menu")]
-            ])
+        if isAgent:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="💸 انتقال اعتبار", callback_data="send_credit")],
+                    [InlineKeyboardButton(text="💳 شارژ کیف پول", callback_data="charge_wallet")],
+                    [InlineKeyboardButton(text="🔙 بازگشت به منو", callback_data="back_to_menu")]
+                ])
+        else:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="💳 شارژ کیف پول", callback_data="charge_wallet")],
+                    [InlineKeyboardButton(text="🔙 بازگشت به منو", callback_data="back_to_menu")]
+                ])
+            
         await callback.message.edit_text(text= Text,
         parse_mode="HTML",
         reply_markup=keyboard)
@@ -1289,7 +1317,17 @@ async def handle_menu_selection(callback: types.CallbackQuery):
             return
 
 
-        
+    elif data == "admin_send_credit":
+        admin_user = callback.from_user.id
+        user_choices[admin_user] = {"action": "admin_send_credit", "step": 1}
+
+        await callback.message.edit_text(
+            "مقدار اعتبار ارسال را وارد کنید:(بدون سه صفر)\n پنجاه هزار تومان=50",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="❌ لغو", callback_data="axtar_menu")]]
+            )
+        )
+
     
     elif data == "remove_disabled_tests":
         usernames = await get_all_test_usernames()
@@ -1325,6 +1363,9 @@ async def handle_text_inputs(message: types.Message):
     if action == "adding_plan":
         return await handle_admin_add_plan_input(message)
     # Other text-based actions can be added here later
+    
+    if action == "admin_send_credit":
+        return await handle_admin_send_credit_input(message)
 
     if action == "chnge_tutor_link":
         tut_id = user_choices[user_id].get("Link_id")
@@ -1354,7 +1395,64 @@ async def handle_admin_change_tutor_link(message:types.Message, link_id :int):
         )
     return
 
+async def handle_admin_send_credit_input(message: types.Message):
+    user_id = message.from_user.id
+    state = user_choices[user_id]
 
+    step = state.get("step", 1)
+
+    # STEP 1 → read Credit
+    if step == 1:
+        try:
+            credit_amount = int(message.text)
+        except:
+            await message.answer("❌ مبلغ باید عدد باشد. دوباره وارد کنید:")
+            return
+
+        state["credit_amount"] = credit_amount
+        state["step"] = 2
+
+        await message.answer("شناسه فرد هدف را بفرستید: \n لطفا در این مورد دقت کنید.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="❌ لغو", callback_data="axtar_menu")]]
+            ))
+        return
+
+    if step == 2:
+        try:
+            target_id = message.text
+        except:
+            await message.answer("❌ خطای پردازش متن. دوباره وارد کنید:")
+            return
+
+        
+
+        credit_amount = state["credit_amount"]
+        
+        
+        try:
+            await add_balance_by_telegram_id(target_id, credit_amount)
+
+            # clear state
+            user_choices.pop(user_id, None)
+            
+            await message.answer(
+                "✔ اعتبار با موفقیت ارسال شد.\n\n"
+                f"📦 مقدار: {credit_amount}\n",
+                reply_markup=InlineKeyboardMarkup(
+                    
+                    inline_keyboard=[
+                        [InlineKeyboardButton(text="مشاهده کاربر هدف", url=f"tg://user?id={target_id}")],
+                        [InlineKeyboardButton(text="🔙 بازگشت", callback_data="axtar_menu")]
+                                     ]
+                )
+            )
+            return
+        
+        except Exception as e:
+            print(f"[DEBUG] Error: {e}") 
+            await message.answer(f" خطای دیتابیس:{e}")
+    
 async def handle_admin_add_plan_input(message: types.Message):
     user_id = message.from_user.id
     state = user_choices[user_id]
