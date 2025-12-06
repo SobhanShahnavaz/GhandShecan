@@ -9,7 +9,7 @@ from app.services.database import get_plans,delete_plan,add_plan,get_available_m
 from app.services.database import count_test_accounts,add_test_account,get_all_test_usernames
 from app.services.database import get_all_cards,add_card,get_active_card,activate_card
 from app.services.database import get_all_tutorials,update_tutorial_link,get_tutorials_by_device
-from app.services.database import get_user_stats,add_balance_by_telegram_id
+from app.services.database import get_user_stats,add_balance_by_telegram_id,transfer_balance
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import re
 from app.services.marzban_api import get_user_by_username,delete_user_from_marzban,delete_disabled_tests_in_marzban,create_Test_in_marzban
@@ -394,7 +394,16 @@ async def handle_menu_selection(callback: types.CallbackQuery):
 
 
     elif data == "charge_wallet":
-        await callback.answer("💰 مدیریت کیف پول به‌زودی فعال می‌شود!", show_alert=True)
+        telegram_id = callback.from_user.id
+        user_choices[telegram_id] = {"action": "charge_wallet", "step": 1}
+
+        await callback.message.edit_text(
+            "مقدار شارژ را وارد کنید:(بدون سه صفر)\nمثلا صد هزار تومان=100 \n حداقل شارژ پنجاه هزار تومان(50) و حداکثر ده میلیون(10000) می باشد",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="❌ بیخیال", callback_data="back_to_menu")]]
+            )
+        )
+        
 
     elif data == "profile":
         telegram_id = callback.from_user.id
@@ -459,6 +468,27 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         await callback.message.edit_text(text= Text,
         parse_mode="HTML",
         reply_markup=keyboard)
+
+    elif data == "send_credit":
+        telegram_id = callback.from_user.id
+        isAgent = await is_agent(telegram_id)
+        if not isAgent:
+            return
+        
+        userdata = await get_user(telegram_id)
+        balance = userdata[9]
+        if balance < 50: 
+            await callback.message.answer("برای انتقال باید حداقل 50 هزارتومان اعتبار داشته باشید.")
+            return
+        
+        user_choices[telegram_id] = {"action": "agent_send_credit", "step": 1}
+
+        await callback.message.edit_text(
+            "مقدار اعتبار ارسالی را وارد کنید:(بدون سه صفر)\n مثلا پنجاه هزار تومان=50",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="❌ لغو", callback_data="back_to_menu")]]
+            )
+        )
 
 
     elif data == "apps":
@@ -1040,12 +1070,19 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         await callback.answer("نماینده با موفقیت اضافه شد.", show_alert=True)
 
         await callback.message.edit_text("نماینده تایید شد ✔")
-        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 بازگشت به منو", callback_data="back_to_menu")]
+            ])
         # notify the agent
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 رفتن به منو", callback_data="back_to_menu")]
+            ])
         await callback.bot.send_message(
             tg_id,
             "درخواست همکاری شما تایید شد!\n"
-            "اکنون شما به عنوان نماینده ثبت شده‌اید."
+            "اکنون شما به عنوان نماینده ثبت شده‌اید.",
+            reply_markup=keyboard
+            
         )
     
     elif data.startswith("reject_agent_"):
@@ -1362,10 +1399,13 @@ async def handle_text_inputs(message: types.Message):
     # Admin adding plan
     if action == "adding_plan":
         return await handle_admin_add_plan_input(message)
-    # Other text-based actions can be added here later
+    
     
     if action == "admin_send_credit":
         return await handle_admin_send_credit_input(message)
+
+    if action == "agent_send_credit":
+        return await handle_agent_send_credit_input(message)
 
     if action == "chnge_tutor_link":
         tut_id = user_choices[user_id].get("Link_id")
@@ -1373,6 +1413,9 @@ async def handle_text_inputs(message: types.Message):
     
     if action == "adding_card":
         return await handle_admin_add_card_input(message)
+
+    if action == "charge_wallet":
+        return await handle_user_recharge(message)
 
 async def handle_admin_change_tutor_link(message:types.Message, link_id :int):
     user_id = message.from_user.id
@@ -1428,7 +1471,16 @@ async def handle_admin_send_credit_input(message: types.Message):
         
 
         credit_amount = state["credit_amount"]
-        
+        if credit_amount>999:
+            Million = math.floor(credit_amount/1000)
+            Thousand = credit_amount - (Million*1000)
+            if Thousand == 0:
+                credit_amount_text = f"{Million} میلیون"
+            else:
+                credit_amount_text = f"{Million} میلیون و {Thousand}"
+
+        else:
+            credit_amount_text =f"{credit_amount} هزار تومان"
         
         try:
             await add_balance_by_telegram_id(target_id, credit_amount)
@@ -1438,7 +1490,7 @@ async def handle_admin_send_credit_input(message: types.Message):
             
             await message.answer(
                 "✔ اعتبار با موفقیت ارسال شد.\n\n"
-                f"📦 مقدار: {credit_amount}\n",
+                f"📦 مقدار: {credit_amount_text}\n",
                 reply_markup=InlineKeyboardMarkup(
                     
                     inline_keyboard=[
@@ -1447,12 +1499,111 @@ async def handle_admin_send_credit_input(message: types.Message):
                                      ]
                 )
             )
+            await message.bot.send_message(
+            target_id,
+            f"🎁 کیف پول شما توسط مدیریت شارژ شد. \n مبلغ:{credit_amount_text} ",
+            )
             return
         
         except Exception as e:
             print(f"[DEBUG] Error: {e}") 
             await message.answer(f" خطای دیتابیس:{e}")
     
+async def handle_agent_send_credit_input(message: types.Message):
+    user_id = message.from_user.id
+    user_name = message.from_user.first_name
+    state = user_choices[user_id]
+
+    step = state.get("step", 1)
+    userdata = await get_user(user_id)
+    balance = userdata[9]
+    # STEP 1 → read Credit
+    if step == 1:
+        try:
+            credit_amount = int(message.text)
+        except:
+            await message.answer("❌ مبلغ باید عدد باشد. دوباره وارد کنید:")
+            return
+        
+        
+        userdata = await get_user(user_id)
+        balance = userdata[9]
+        if balance < credit_amount:
+            
+            user_choices.pop(user_id, None)
+            await message.answer("❌ متاسفم اما نمیتونی بیش از موجودیت ارسال کنی، روند تراکنش رو کاملا متوقف کردم. با دکمه زیر میتونی برگردی به منو!",
+                reply_markup=InlineKeyboardMarkup(
+                    inline_keyboard=[[InlineKeyboardButton(text="بازگشت", callback_data="back_to_menu")]]
+            ))
+            await message.bot.send_message(
+                LOG_CHANNEL_ID,
+                f"نماینده <a href='tg://user?id={user_id}'>{user_name}</a> میخواست بیش از موجودیش؛ اعتبار انتقال بده. امیدوارم که از قصد نبوده باشه!"
+            )
+            return
+        
+        
+        
+        state["credit_amount"] = credit_amount
+        state["step"] = 2
+
+        await message.answer("شناسه فرد هدف را بفرستید: \n لطفا در این مورد دقت کنید.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="❌ لغو", callback_data="back_to_menu")]]
+            ))
+        return
+
+    if step == 2:
+        try:
+            target_id = message.text
+        except:
+            await message.answer("❌ خطای پردازش متن. دوباره وارد کنید:")
+            return
+
+        
+        
+
+        credit_amount = state["credit_amount"]
+        if credit_amount>999:
+            Million = math.floor(credit_amount/1000)
+            Thousand = credit_amount - (Million*1000)
+            if Thousand == 0:
+                credit_amount_text = f"{Million} میلیون"
+            else:
+                credit_amount_text = f"{Million} میلیون و {Thousand}"
+
+        else:
+            credit_amount_text =f"{credit_amount} هزار تومان"
+        
+        try:
+            await transfer_balance(user_id,target_id, credit_amount)
+            # clear state
+            user_choices.pop(user_id, None)
+            
+            await message.answer(
+                "✔ اعتبار با موفقیت ارسال شد.\n\n"
+                f"📦 مقدار: {credit_amount_text}\n",
+                reply_markup=InlineKeyboardMarkup(
+                    
+                    inline_keyboard=[
+                        [InlineKeyboardButton(text="مشاهده کاربر هدف", url=f"tg://user?id={target_id}")],
+                        [InlineKeyboardButton(text="🔙 بازگشت", callback_data="axtar_menu")]
+                                     ]
+                )
+            )
+            await message.bot.send_message(
+            target_id,
+            f"🎁 کیف پول شما توسط <a href='tg://user?id={user_id}'>{user_name}</a> شارژ شد. \n مبلغ:{credit_amount_text} ",
+            )
+            await message.bot.send_message(
+                LOG_CHANNEL_ID,
+                f"نماینده <a href='tg://user?id={user_id}'>{user_name}</a> برای <a href='tg://user?id={target_id}'>این کاربر</a> مقدار {credit_amount_text} اعتبار ارسال کرد!"
+            )
+            return
+        
+        except Exception as e:
+            print(f"[DEBUG] Error: {e}") 
+            await message.answer(f" خطای دیتابیس: با پشتیبانی تماس بگیرید.")
+
 async def handle_admin_add_plan_input(message: types.Message):
     user_id = message.from_user.id
     state = user_choices[user_id]
@@ -1630,6 +1781,49 @@ async def handle_config_name(message: types.Message):
         f"⏱ مدت: {duration} ماهه\n"
         f"📦 حجم: {size} گیگ\n"
         f"💰 مبلغ: {price:,} هزار تومان\n\n"
+        "از چه روشی میخوای پرداخت کنی؟",
+        parse_mode="HTML",
+        reply_markup=keyboard
+    )
+
+async def handle_user_recharge(message: types.Message):
+    user_id = message.from_user.id
+    is_agent_user = await is_agent(user_id)
+    for_agent = 1 if is_agent_user else 0
+    user_choices[user_id]["is_agent"] = for_agent
+    if user_id not in user_choices:
+        return
+    try:
+        amount = int(message.text)
+    except:
+        await message.answer("❌ قیمت باید عددی انگلیسی باشد. دوباره وارد کنید:")
+        return
+    
+    if amount < 50 or amount > 10000:
+        await message.answer("❌ به محدوده قیمت گفته شده دقت کنید، لطفا عدد مجاز ارسال کنید:")
+        return
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳 انتقال به کارت", callback_data="waiting_for_receipt")],
+        [InlineKeyboardButton(text="❌ منصرف شدم", callback_data="cancel_payment")]
+    ])
+    if amount>999:
+        Million = math.floor(amount/1000)
+        Thousand = amount - (Million*1000)
+        if Thousand == 0:
+            text_amount = f"{Million} میلیون"
+        else:
+            text_amount = f"{Million} میلیون و {Thousand}"
+
+    else:
+        text_amount =f"{amount} هزار تومان"
+    
+    
+    user_choices[user_id]["price"] = amount
+    
+    await message.answer(
+        f"📦 شارژ حساب \n"
+        f"💰 مبلغ: {text_amount}\n\n"
         "از چه روشی میخوای پرداخت کنی؟",
         parse_mode="HTML",
         reply_markup=keyboard

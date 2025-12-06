@@ -805,3 +805,49 @@ async def generate_unique_referral():
                 return code
 
 
+async def transfer_balance(sender_id: int, receiver_id: int, amount: int) -> bool:
+    if amount <= 0:
+        return False
+
+    async with aiosqlite.connect(DB_PATH) as conn:
+        try:
+            await conn.execute("BEGIN TRANSACTION")
+
+            # 1️⃣ Check sender balance
+            cursor = await conn.execute(
+                "SELECT balance FROM telegram_users WHERE telegram_id = ?",
+                (sender_id,)
+            )
+            row = await cursor.fetchone()
+
+            if not row or row[0] < amount:
+                await conn.execute("ROLLBACK")
+                return False  # insufficient balance
+
+            # 2️⃣ Deduct from sender
+            await conn.execute(
+                """
+                UPDATE telegram_users
+                SET balance = balance - ?
+                WHERE telegram_id = ?
+                """,
+                (amount, sender_id)
+            )
+
+            # 3️⃣ Add to receiver
+            await conn.execute(
+                """
+                UPDATE telegram_users
+                SET balance = balance + ?
+                WHERE telegram_id = ?
+                """,
+                (amount, receiver_id)
+            )
+
+            # ✅ Commit transaction
+            await conn.commit()
+            return True
+
+        except Exception:
+            await conn.execute("ROLLBACK")
+            raise

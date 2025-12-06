@@ -5,7 +5,7 @@ from datetime import datetime
 import os
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from zoneinfo import ZoneInfo
-
+import math
 
 from app.services.database import add_order, get_user_id
 from app.handlers.menu import user_choices  # اطلاعات موقت خرید
@@ -59,8 +59,27 @@ async def handle_payment_receipt(message: types.Message):
     elif order_type == "add_data":
         order_type_text = "افزایش حجم"
         duration= "-"
+    elif order_type == "charge_wallet":
+        order_type_text = "افزایش موجودی"
+        config_name = "-"
+        duration= "-"
+        maxdevtext = "-"
+        size = "-"
+
+
     else:
         order_type_text = "خرید"
+    
+    if price>999:
+        Million = math.floor(price/1000)
+        Thousand = price - (Million*1000)
+        if Thousand == 0:
+            text_price = f"{Million} میلیون"
+        else:
+            text_price = f"{Million} میلیون و {Thousand}"
+
+    else:
+        text_price =f"{price} هزار تومان"
     # پیام برای مدیر
     caption = (
         f"📥 <b>رسید جدید پرداخت</b>\n\n"
@@ -71,7 +90,7 @@ async def handle_payment_receipt(message: types.Message):
         f"⏱ <b>مدت:</b> {duration} ماهه\n"
         f"⏱ <b>محدودیت کاربر:</b> {maxdevtext} کاربره\n"
         f"📦 <b>حجم:</b> {size} گیگ\n"
-        f"💰 <b>مبلغ:</b> {price:,} هزار تومان\n"
+        f"💰 <b>مبلغ:</b> {text_price} \n"
         f"🕒 <b>تاریخ:</b> {tehran_now().strftime('%Y-%m-%d %H:%M:%S')}"
     )
 

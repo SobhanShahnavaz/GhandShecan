@@ -6,7 +6,7 @@ import os
 from datetime import datetime, timedelta
 from app.services.database import add_data_added,add_agent_income,increment_agent_buys,add_buy_price,is_agent
 from app.services.database import get_user_price_for_plan,add_renew_price,add_gb_added
-from app.services.database import get_tutorials_by_device
+from app.services.database import get_tutorials_by_device,add_balance_by_telegram_id
 from app.services.database import increase_approved_buy, add_transaction
 from zoneinfo import ZoneInfo
 
@@ -216,6 +216,35 @@ async def approve_order(callback: types.CallbackQuery):
 
         return
 
+    elif order_type == "charge_wallet":
+        telegram_user_id  = order[1] 
+        price = order[3]
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 بازگشت به منو", callback_data="back_to_menu")]
+            ])
+        try:
+            await add_balance_by_telegram_id(telegram_user_id,price)
+            await callback.bot.send_message(
+            telegram_user_id,
+            "سفارش شما تأیید و به موجودی شما افزوده شد ✅",
+            reply_markup=keyboard
+        )
+            await callback.bot.send_message(
+            ADMIN_ID,
+            "سفارش افزایش موجودی با موفقیت تأیید شد ✅"
+        )
+
+        except:
+            await callback.answer("❌ خطا در تمدید سرویس.")
+            await callback.bot.send_message(
+                ADMIN_ID,  
+                "خطایی در روند افزایش موجودی رخ داد. لطفا خطاهارا بررسی کنید!")
+        try:
+            await callback.message.delete()
+        except:
+            pass
+    
+    
     #if it was Buy
     else:
         tg_username = user[2] if isinstance(user, (list, tuple)) else user["username"]
