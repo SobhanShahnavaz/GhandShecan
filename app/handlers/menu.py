@@ -1,19 +1,25 @@
 from aiogram import Router, types, F
 from app.keyboards.main_menu import main_menu_keyboard,request_cooperation_keyboard,agent_menu_keyboard
 from app.keyboards.admin_menu import admin_menu_keyboard
+from app.keyboards.pay_methods import Payment_keyboard
 from app.services import marzban_api
-from app.services.database import add_order , get_marzban_account_by_id,delete_marzban_account,list_agent_requests
+from app.services.database import add_order , get_marzban_account_by_id,delete_marzban_account,list_agent_requests,get_user_id
 from app.services.database import get_marzban_accounts_by_user,get_agent,get_plan_price_by_DMA, get_user,add_agent_request
 from app.services.database import add_agent, delete_agent_request, add_agent_stats, get_agent_stats, is_agent
 from app.services.database import get_plans,delete_plan,add_plan,get_available_months,get_sizes_for_month,get_plan_by_id
 from app.services.database import count_test_accounts,add_test_account,get_all_test_usernames
-from app.services.database import get_all_cards,add_card,get_active_card,activate_card
+from app.services.database import get_all_cards,add_card,get_active_card,activate_card,update_order_status
 from app.services.database import get_all_tutorials,update_tutorial_link,get_tutorials_by_device
 from app.services.database import get_user_stats,add_balance_by_telegram_id,transfer_balance
+from app.services.database import increase_approved_buy, add_transaction
+from app.services.database import add_data_added,add_agent_income,increment_agent_buys,add_buy_price,is_agent
+from app.services.database import get_user_price_for_plan,add_renew_price,add_gb_added
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import re
 from app.services.marzban_api import get_user_by_username,delete_user_from_marzban,delete_disabled_tests_in_marzban,create_Test_in_marzban
-from datetime import datetime,timezone
+from app.services.marzban_api import update_user_in_marzban,create_user_in_marzban
+from app.services.database import get_marzban_account_by_user_plan,update_marzban_account_after_renew,add_marzban_account
+from datetime import datetime,timezone,timedelta
 from zoneinfo import ZoneInfo
 import math
 import os
@@ -22,6 +28,7 @@ import os
 router = Router()
 ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
 LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID"))
+ORDERS_CHANNEL_ID = int(os.getenv("ORDERS_CHANNEL_ID"))
 SUPPORT_ACC_ID = int(os.getenv("SUPPORT_ACC_ID"))
 
 # حافظه موقت برای نگهداری انتخاب‌های کاربر
@@ -521,17 +528,7 @@ async def handle_menu_selection(callback: types.CallbackQuery):
     elif data == "referrals":
         await callback.answer("👥 بخش زیرمجموعه‌گیری به‌زودی می‌آید!", show_alert=True)
     
-    elif data == "send_receipt":
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📤 ارسال رسید", callback_data="waiting_for_receipt")],
-            [InlineKeyboardButton(text="❌ منصرف شدم", callback_data="cancel_payment")]
-        ])
 
-        await callback.message.answer(
-            "💳 لطفاً یکی از گزینه‌های زیر را انتخاب کنید:",
-            reply_markup=keyboard
-        )
-        await callback.answer()
 
     elif data == "cancel_payment":
         user_choices.pop(callback.from_user.id, None)
@@ -554,6 +551,217 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         )
         await callback.answer()
 
+    elif data == "pay_with_wallet":
+        telegram_id = callback.from_user.id
+        db_user_id = await get_user_id(telegram_id)
+        
+        if not db_user_id:
+            await callback.answer("⚠️ ابتدا باید در ربات ثبت‌نام کنید.")
+            return
+        
+        telegramuser = await get_user(telegram_id)
+        balance = telegramuser[9]
+        user_data = user_choices.get(telegram_id)
+        file_id = "wallet"
+        config_name = user_data.get("config_name", "بدون نام")
+        duration = user_data.get("duration", 0)
+        size = user_data.get("size", 0)
+        price = user_data.get("price", 0)
+        isAgent = user_data.get("is_agent",0)
+        order_type = user_data.get("action", "buy")
+        userlimit = user_data.get("user_limit", 1)
+        maxdevtext = user_data.get("max_device", "نامعلوم")
+        R_order_type = file_id + "_" + order_type
+        if balance < price: 
+            await callback.message.answer(f"امکان پرداخت وجود ندارد.\n موجودی شما:{balance}، مبلغ سفارش:{price}")
+            return
+
+        if isAgent:
+            CoworkOrCust = "نماینده"
+        else:
+            CoworkOrCust = "کاربر"
+        # ذخیره در دیتابیس
+        order_id = await add_order(telegram_id, config_name, price, duration, size, file_id, R_order_type ,userlimit)
+        minus_amount = (abs(price)) * -1
+        await add_balance_by_telegram_id(telegram_id,minus_amount)
+        await update_order_status(order_id, "approved")
+
+        if order_type == "renew":
+            
+            order_type_text = "تمدید"
+            account = await get_marzban_account_by_user_plan(telegram_id, config_name)
+            if not account:
+                await callback.answer("❌ حساب در دیتابیس یافت نشد.", show_alert=True)
+                return
+            acc_id = account[0]
+            panel_username = account[2]
+            months = int(account[8])
+            size_gb = float(account[9])
+            marzban_user = await get_user_by_username(panel_username)
+            if not marzban_user:
+                await callback.answer("❌ دریافت اطلاعات از پنل ناموفق بود.", show_alert=True)
+                return
+
+            current_expire = marzban_user.get("expire") or 0
+
+            # محاسبه expire جدید
+            
+            add_seconds = months * 30 * 24 * 60 * 60
+            if current_expire:
+                new_expire_ts = int((datetime.fromtimestamp(current_expire, ZoneInfo("Asia/Tehran")) + timedelta(seconds=add_seconds)).timestamp())
+            else:
+                
+                new_expire_ts = int((tehran_now()  + timedelta(seconds=add_seconds)).timestamp())
+
+            # حجم جدید
+            data_limit = int(size_gb * 1024 * 1024 * 1024)
+            payload = {
+                "status": "active",
+                "username": panel_username,
+                "note": "",
+                "data_limit": data_limit,
+                "data_limit_reset_strategy": "no_reset",
+                "expire": new_expire_ts,
+
+                "inbounds": {
+                    "vless": ["REALITY", "TCPNONE", "VLESS+GRPC+NONE"],
+                    "shadowsocks": ["Shadowsocks TCP"],
+                    "trojan": ["Trojan + Tcp"],
+                    "vmess": ["VMESS + TCP"]
+                },
+
+                "proxies": {
+                    "vless": {"flow": ""},
+                    "shadowsocks": {"method": "chacha20-ietf-poly1305"},
+                    "trojan": {},
+                    "vmess": {}
+                }
+            }
+            # ارسال به مرزبان
+            ok = await update_user_in_marzban(panel_username, payload)
+
+            if not ok:
+                await callback.answer("❌ خطا در تمدید سرویس.")
+                await callback.bot.send_message(
+                    ADMIN_ID,  
+                    "خطایی در روند تمدید با موجودی رخ داد. لطفا خطاهارا بررسی کنید!")
+                return
+
+            # آپدیت دیتابیس محلی
+            await update_marzban_account_after_renew(acc_id, new_expire_ts, size_gb)
+            
+            await callback.bot.send_message(
+                    ORDERS_CHANNEL_ID,  
+                    f" {CoworkOrCust} تراکنش {order_type_text} حساب {panel_username} را با موجودی پرداخت کرد.")
+            
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔙 بازگشت به منو", callback_data="back_to_menu")]
+                ])
+            # پیام برای کاربر
+            await callback.bot.send_message(
+                account[1],  # telegram_user_id
+                "✅ تمدید سرویس شما با موفقیت انجام شد!",
+                reply_markup=keyboard
+            )
+            #افزایش آمار کاربر
+            try:
+                await add_transaction(telegram_id,price)
+                if await is_agent(telegram_id):
+                    if userlimit == 3:
+                        Multip = 2
+                    elif userlimit == 5:
+                        Multip = 3
+                    else:
+                        Multip = 1
+                    revenue = await get_user_price_for_plan(months, size/Multip)
+                    
+                    revenue = revenue * Multip
+                    await increment_agent_buys(telegram_id)
+
+                    await add_renew_price(telegram_id, price)
+
+                    # درآمد نماینده 
+                    await add_agent_income(telegram_id, revenue)
+            except Exception as e:
+                print(f" Could'nt add stats. ERROR:{e}")
+
+
+        elif order_type == "add_data":
+            order_type_text = "افزایش حجم"
+            duration= "-"
+        else:
+            order_type_text = "خرید"
+            tg_username = telegramuser[2] if isinstance(telegramuser, (list, tuple)) else telegramuser["username"]
+            tg_phonenum = telegramuser[5] if isinstance(telegramuser, (list, tuple)) else telegramuser["phone_number"]
+            if tg_username:
+                prefix = tg_username
+            else :
+                prefix = tg_phonenum
+            try:
+                # ساخت یوزر در مرزبان
+                days = duration * 30
+                expire_timestamp = int((tehran_now() + timedelta(days)).timestamp())
+                Plan_name = config_name + "-" + prefix
+                data_limit = int(size)
+                # تبدیل قیمت یا حجم به مشخصات پلن (موقت)
+                # مثلا بر اساس نام کانفیگ، حجم و مدت مشخص کن
+                sub_link = await create_user_in_marzban(username=Plan_name, data_limit_gb=data_limit, expire_days= days)
+                await add_marzban_account(telegram_id,Plan_name,"Active",expire_timestamp,0,sub_link,duration,data_limit,userlimit)
+                device_android = await get_tutorials_by_device("Usage","Android")
+                ANDROID_MESSAGE_URL = device_android[4]
+                device_ios = await get_tutorials_by_device("Usage","IOS")
+                IOS_MESSAGE_URL = device_ios[4]
+                device_windows = await get_tutorials_by_device("Usage","Windows")
+                WINDOWS_MESSAGE_URL = device_windows[4]
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📘 نحوه استفاده اندروید", url=ANDROID_MESSAGE_URL)],
+                    [InlineKeyboardButton(text="📘 نحوه استفاده آیفون", url=IOS_MESSAGE_URL)],
+                    [InlineKeyboardButton(text="📘 نحوه استفاده ویندوز", url=WINDOWS_MESSAGE_URL)],
+                    [InlineKeyboardButton(text="🔙 بازگشت به منو", callback_data="back_to_menu_without_del")]
+                ])
+                await callback.bot.send_message(
+                    telegram_id,
+                    f"✅ حساب شما ساخته شد!\n\n"
+                    f"🔗 <b>لینک اشتراک:</b>\n<code>{sub_link}</code>",
+                    parse_mode="HTML",
+                    reply_markup=keyboard
+                )
+                # ارسال لینک به کاربر
+                
+                await callback.bot.send_message(
+                    LOG_CHANNEL_ID,  
+                    f" {CoworkOrCust} تراکنش {order_type_text} حساب {Plan_name} را با موجودی پرداخت کرد.")
+            except Exception as e:
+                await callback.bot.send_message(telegram_id, "⚠️ خطا در ساخت حساب در پنل. پشتیبانی در حال بررسی است.")
+                await callback.bot.send_message(
+                    ADMIN_ID,  
+                    "خطایی در روند خرید با موجودی رخ داد. لطفا خطاهارا بررسی کنید!")
+                print(f"[Marzban Error] {e}")
+            #افزایش آمار کاربر
+            try:
+                await increase_approved_buy(telegram_id)
+                await add_transaction(telegram_id,price)
+                
+                if await is_agent(telegram_id):
+                    if userlimit == 3:
+                        Multip = 2
+                    elif userlimit == 5:
+                        Multip = 3
+                    else:
+                        Multip = 1
+                    revenue = await get_user_price_for_plan(duration, data_limit/Multip)
+                    
+                    revenue = revenue * Multip
+                    await increment_agent_buys(telegram_id)
+
+                    # جمع مبلغ خرید
+                    await add_buy_price(telegram_id, price)
+                    
+                    # درآمد نماینده 
+                    await add_agent_income(telegram_id, revenue)
+            except Exception as e:
+                print(f" Could'nt add stats. ERROR:{e}")
+            
 
     elif data.startswith("show_acc_"):
 
@@ -728,15 +936,12 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         user_choices[telegram_id]["size"] = gb
         user_choices[telegram_id]["price"] = price
 
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💳 انتقال به کارت", callback_data="waiting_for_receipt")],
-            [InlineKeyboardButton(text="❌ منصرف شدم", callback_data="cancel_payment")]
-        ])
+        
         await callback.message.answer(
             f"📌 حجم انتخاب‌شده: {gb}GB\n"
             f"💰 مبلغ: {price:,} هزار تومان\n\n"
             "خب، روش پرداختت رو انتخاب کن",
-            reply_markup=kb,
+            reply_markup=Payment_keyboard(),
 
         )
 
@@ -806,15 +1011,12 @@ async def handle_menu_selection(callback: types.CallbackQuery):
             "max_device" : mdtext
 
         }
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💳 انتقال به کارت", callback_data="waiting_for_receipt")],
-            [InlineKeyboardButton(text="❌ منصرف شدم", callback_data="cancel_payment")]
-        ])
+        
 
         await callback.message.answer(
             f"💳 مبلغ تمدید: {plan_price:,} هزار تومان\n"
             "لطفاً روش پرداخت را انتخاب کنید.",
-            reply_markup=kb,
+            reply_markup=Payment_keyboard(),
             parse_mode="HTML"
         )
 
@@ -1586,7 +1788,7 @@ async def handle_agent_send_credit_input(message: types.Message):
                     
                     inline_keyboard=[
                         [InlineKeyboardButton(text="مشاهده کاربر هدف", url=f"tg://user?id={target_id}")],
-                        [InlineKeyboardButton(text="🔙 بازگشت", callback_data="axtar_menu")]
+                        [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_menu")]
                                      ]
                 )
             )
@@ -1769,10 +1971,7 @@ async def handle_config_name(message: types.Message):
     price = data["price"]
     name = data["config_name"]
     max_dev = data["max_device"]
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 انتقال به کارت", callback_data="waiting_for_receipt")],
-        [InlineKeyboardButton(text="❌ منصرف شدم", callback_data="cancel_payment")]
-    ])
+    
     card = await get_active_card()
     card_number = card[2]
     card_owner = card[3]
@@ -1783,7 +1982,7 @@ async def handle_config_name(message: types.Message):
         f"💰 مبلغ: {price:,} هزار تومان\n\n"
         "از چه روشی میخوای پرداخت کنی؟",
         parse_mode="HTML",
-        reply_markup=keyboard
+        reply_markup=Payment_keyboard()
     )
 
 async def handle_user_recharge(message: types.Message):
