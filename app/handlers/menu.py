@@ -17,7 +17,7 @@ from app.services.database import get_user_price_for_plan,add_renew_price,add_gb
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import re
 from app.services.marzban_api import get_user_by_username,delete_user_from_marzban,delete_disabled_tests_in_marzban,create_Test_in_marzban
-from app.services.marzban_api import update_user_in_marzban,create_user_in_marzban
+from app.services.marzban_api import update_user_in_marzban,create_user_in_marzban,add_data_for_user_in_marzban
 from app.services.database import get_marzban_account_by_user_plan,update_marzban_account_after_renew,add_marzban_account
 from datetime import datetime,timezone,timedelta
 from zoneinfo import ZoneInfo
@@ -35,6 +35,32 @@ SUPPORT_ACC_ID = int(os.getenv("SUPPORT_ACC_ID"))
 user_choices = {}
 def tehran_now():
     return datetime.now(ZoneInfo("Asia/Tehran"))
+
+def to_persian_digits(n: int) -> str:
+    trans = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
+    return str(n).translate(trans)
+
+# STRONG direction controls (button-safe)
+RLO = "\u202E"   # Right-to-Left OVERRIDE  ✅ strongest
+PDI = "\u2069"   # Pop Direction Isolate
+RLM = "\u200F"   # Right-to-Left Mark
+
+def format_amount_button(amount: int) -> str:
+    if amount > 999:
+        million = amount // 1000
+        thousand = amount - million * 1000
+
+        if thousand == 0:
+            text = f"{to_persian_digits(million)} میلیون"
+        else:
+            text = f"{to_persian_digits(million)} میلیون و {to_persian_digits(thousand)} هزار"
+    else:
+        text = f"{to_persian_digits(amount)} هزار"
+
+    text += " تومان"
+
+    # ✅ FORCE RTL HARD for Telegram buttons
+    return f"{RLO}{RLM}{text}{PDI}"
 
 @router.callback_query(F.data == "main_menu")
 async def show_main_menu(callback: types.CallbackQuery):
@@ -462,7 +488,7 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         Text = TextP1 + TextP2 + TextP3
         if isAgent:
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="💸 انتقال اعتبار", callback_data="send_credit")],
+                    #[InlineKeyboardButton(text="💸 انتقال اعتبار", callback_data="send_credit")],
                     [InlineKeyboardButton(text="💳 شارژ کیف پول", callback_data="charge_wallet")],
                     [InlineKeyboardButton(text="🔙 بازگشت به منو", callback_data="back_to_menu")]
                 ])
@@ -543,13 +569,15 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         card = await get_active_card()
         card_number = card[2]
         card_owner = card[3]
+        await callback.answer()
+        await callback.message.delete() 
         await callback.message.answer(
             "📸 لطفاً تصویر رسید پرداخت خود را ارسال کنید.\n\n"
             f"📸 <code>{card_number}</code>\n {card_owner} \n" #this will be payment card and the name.
             "در صورت لغو، از منوی اصلی گزینه‌ی دیگری را انتخاب کنید.",
             parse_mode="HTML"
         )
-        await callback.answer()
+        
 
     elif data == "pay_with_wallet":
         telegram_id = callback.from_user.id
@@ -649,10 +677,11 @@ async def handle_menu_selection(callback: types.CallbackQuery):
 
             # آپدیت دیتابیس محلی
             await update_marzban_account_after_renew(acc_id, new_expire_ts, size_gb)
-            
+            await callback.answer()
+            await callback.message.delete() 
             await callback.bot.send_message(
-                    ORDERS_CHANNEL_ID,  
-                    f" {CoworkOrCust} تراکنش {order_type_text} حساب {panel_username} را با موجودی پرداخت کرد.")
+                    LOG_CHANNEL_ID,  
+                    f" <a href='tg://user?id={telegram_id}'>{CoworkOrCust}</a> تراکنش {order_type_text} حساب {panel_username} را با موجودی پرداخت کرد.")
             
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="🔙 بازگشت به منو", callback_data="back_to_menu")]
@@ -689,6 +718,72 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         elif order_type == "add_data":
             order_type_text = "افزایش حجم"
             duration= "-"
+            account = await get_marzban_account_by_user_plan(telegram_id, config_name)
+            if not account:
+                await callback.answer("❌ حساب در دیتابیس یافت نشد.", show_alert=True)
+                return
+
+            acc_id = account[0]
+            panel_username = account[2]
+            
+            # تبدیل گیگ به بایت
+            add_bytes = int(size * 1024 * 1024 * 1024)
+
+            # دریافت اطلاعات فعلی کاربر از مرزبان
+            marzban_user = await get_user_by_username(panel_username)
+            if not marzban_user:
+                await callback.answer("❌ دریافت اطلاعات از پنل ناموفق بود.", show_alert=True)
+                return
+
+            current_limit = marzban_user.get("data_limit") or 0
+            Expire = marzban_user.get("expire") or 0
+
+            new_limit = current_limit + add_bytes
+
+            new_limit_gb = (((new_limit / 1024) / 1024) / 1024)
+
+            ok = await add_data_for_user_in_marzban(panel_username, new_limit, Expire)
+
+            if not ok:
+                await callback.answer("❌ خطا در اضافه‌کردن حجم.")
+                await callback.bot.send_message(
+                    ADMIN_ID,
+                    "خطایی در روند تایید رخ داد. لطفا خطاهارا بررسی کنید!"
+                )
+                return
+
+            # آپدیت دیتابیس لوکال
+            await update_marzban_account_after_renew(acc_id, Expire, new_limit_gb)
+            await callback.answer()
+            await callback.message.delete() 
+            await callback.bot.send_message(
+                telegram_id,
+                f"✅ {size} گیگابایت به سرویس شما اضافه شد!",
+                reply_markup= InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 بازگشت به منو", callback_data="back_to_menu_without_del")]
+            ])
+            )
+
+            await callback.bot.send_message(
+                    LOG_CHANNEL_ID,  
+                    f" <a href='tg://user?id={telegram_id}'>{CoworkOrCust}</a> تراکنش {order_type_text} حساب {panel_username} را با موجودی پرداخت کرد.")
+            #افزایش آمار کاربر
+            await add_transaction(telegram_id,price)
+
+            if await is_agent(telegram_id):
+                
+                
+                await add_data_added(telegram_id, price)
+
+            
+                await add_gb_added(telegram_id, size)
+
+            
+                
+
+
+
+            return
         else:
             order_type_text = "خرید"
             tg_username = telegramuser[2] if isinstance(telegramuser, (list, tuple)) else telegramuser["username"]
@@ -719,6 +814,8 @@ async def handle_menu_selection(callback: types.CallbackQuery):
                     [InlineKeyboardButton(text="📘 نحوه استفاده ویندوز", url=WINDOWS_MESSAGE_URL)],
                     [InlineKeyboardButton(text="🔙 بازگشت به منو", callback_data="back_to_menu_without_del")]
                 ])
+                await callback.answer()
+                await callback.message.delete() 
                 await callback.bot.send_message(
                     telegram_id,
                     f"✅ حساب شما ساخته شد!\n\n"
@@ -730,7 +827,7 @@ async def handle_menu_selection(callback: types.CallbackQuery):
                 
                 await callback.bot.send_message(
                     LOG_CHANNEL_ID,  
-                    f" {CoworkOrCust} تراکنش {order_type_text} حساب {Plan_name} را با موجودی پرداخت کرد.")
+                    f" <a href='tg://user?id={telegram_id}'>{CoworkOrCust}</a> تراکنش {order_type_text} حساب {Plan_name} را با موجودی پرداخت کرد.")
             except Exception as e:
                 await callback.bot.send_message(telegram_id, "⚠️ خطا در ساخت حساب در پنل. پشتیبانی در حال بررسی است.")
                 await callback.bot.send_message(
@@ -937,7 +1034,7 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         user_choices[telegram_id]["price"] = price
 
         
-        await callback.message.answer(
+        await callback.message.edit_text(
             f"📌 حجم انتخاب‌شده: {gb}GB\n"
             f"💰 مبلغ: {price:,} هزار تومان\n\n"
             "خب، روش پرداختت رو انتخاب کن",
@@ -1123,34 +1220,13 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         approved_date = stats[7] if stats else "N/A"
 
         register_date = user[6] if user else "N/A"
+         
+        total_income_text      = format_amount_button(total_income)
+        text_sum_buy_prices    = format_amount_button(sum_buy_prices)
+        text_sum_of_data_added = format_amount_button(sum_of_data_added)
+        text_sum_renew_prices  = format_amount_button(sum_renew_prices)
+
         
-        if total_income>999:
-            Million = math.floor(total_income/1000)
-            Thousand = total_income - (Million*1000)
-            text_total_income = f"{Million} میلیون و {Thousand}"
-        else:
-            text_total_income =f"{total_income} هزار تومان"
-        
-        if sum_buy_prices>999:
-            Million = math.floor(sum_buy_prices/1000)
-            Thousand = sum_buy_prices - (Million*1000)
-            text_sum_buy_prices = f"{Million} میلیون و {Thousand}"
-        else:
-            text_sum_buy_prices =f"{sum_buy_prices} هزار تومان"
-        
-        if sum_of_data_added>999:
-            Million = math.floor(sum_of_data_added/1000)
-            Thousand = sum_of_data_added - (Million*1000)
-            text_sum_of_data_added = f"{Million} میلیون و {Thousand}"
-        else:
-            text_sum_of_data_added =f"{sum_of_data_added} هزار تومان"
-        
-        if sum_renew_prices>999:
-            Million = math.floor(sum_renew_prices/1000)
-            Thousand = sum_renew_prices - (Million*1000)
-            text_sum_renew_prices = f"{Million} میلیون و {Thousand}"
-        else:
-            text_sum_renew_prices =f"{sum_renew_prices} هزار تومان"
            
         
 
@@ -1161,11 +1237,11 @@ async def handle_menu_selection(callback: types.CallbackQuery):
                 
             ],
             [
-                InlineKeyboardButton(text=f"{text_total_income}", callback_data="noop"),
+                InlineKeyboardButton(text=total_income_text, callback_data="noop"),
                 InlineKeyboardButton(text="درآمد کل", callback_data="noop")
             ],
             [
-                InlineKeyboardButton(text=f"{text_sum_buy_prices}", callback_data="noop"),
+                InlineKeyboardButton(text=text_sum_buy_prices, callback_data="noop"),
                 InlineKeyboardButton(text="جمع خریدها", callback_data="noop")
             ],
             [
@@ -1173,11 +1249,11 @@ async def handle_menu_selection(callback: types.CallbackQuery):
                 InlineKeyboardButton(text="حجم اضافه شده", callback_data="noop")
             ],
             [
-                InlineKeyboardButton(text=f"{text_sum_of_data_added}", callback_data="noop"),
+                InlineKeyboardButton(text=text_sum_of_data_added, callback_data="noop"),
                 InlineKeyboardButton(text="مبلغ حجم اضافه شده", callback_data="noop")
             ],
             [
-                InlineKeyboardButton(text=f"{text_sum_renew_prices}", callback_data="noop"),
+                InlineKeyboardButton(text=text_sum_renew_prices, callback_data="noop"),
                 InlineKeyboardButton(text="جمع تمدیدها", callback_data="noop")
             ],
             [
@@ -1656,7 +1732,7 @@ async def handle_admin_send_credit_input(message: types.Message):
 
         state["credit_amount"] = credit_amount
         state["step"] = 2
-
+        await message.bot.delete_message(message.chat.id, message.message_id - 1)
         await message.answer("شناسه فرد هدف را بفرستید: \n لطفا در این مورد دقت کنید.",
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[[InlineKeyboardButton(text="❌ لغو", callback_data="axtar_menu")]]
@@ -1689,7 +1765,7 @@ async def handle_admin_send_credit_input(message: types.Message):
 
             # clear state
             user_choices.pop(user_id, None)
-            
+            await message.bot.delete_message(message.chat.id, message.message_id - 1)
             await message.answer(
                 "✔ اعتبار با موفقیت ارسال شد.\n\n"
                 f"📦 مقدار: {credit_amount_text}\n",
@@ -1975,6 +2051,8 @@ async def handle_config_name(message: types.Message):
     card = await get_active_card()
     card_number = card[2]
     card_owner = card[3]
+    
+    await message.bot.delete_message(message.chat.id, message.message_id - 1)
     await message.answer(
         f"✅ نام کانفیگ: <b>{name}</b>, {max_dev} کاربره\n"
         f"⏱ مدت: {duration} ماهه\n"
