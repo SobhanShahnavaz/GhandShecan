@@ -180,6 +180,31 @@ async def init_db():
             """)
         await db.commit()
 
+        await db.execute("""
+                CREATE TABLE IF NOT EXISTS off_codes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+                    code TEXT UNIQUE,                 -- خود کد تخفیف
+                    percent INTEGER,                  -- درصد تخفیف (مثلاً 10، 25، 50)
+
+                    is_global INTEGER DEFAULT 1,      -- 1 = برای همه | 0 = فقط برای یک کاربر
+                    owner_telegram_id INTEGER,        -- اگر شخصی بود، صاحب کد
+
+                    max_uses INTEGER DEFAULT 1,       -- چند بار قابل استفاده است
+                    used_count INTEGER DEFAULT 0,     -- چند بار استفاده شده
+
+                    is_active INTEGER DEFAULT 1,      -- فعال یا غیرفعال
+
+                    created_at TEXT,                 -- تاریخ ساخت
+                    expires_at TEXT                  -- تاریخ انقضا (NULL = بدون انقضا)
+                );
+
+            """)
+        await db.commit()
+        
+
+        
+
 
         
         
@@ -851,3 +876,78 @@ async def transfer_balance(sender_id: int, receiver_id: int, amount: int) -> boo
         except Exception:
             await conn.execute("ROLLBACK")
             raise
+
+async def create_off_code(
+    code: str,
+    percent: int,
+    is_global: int = 1,
+    owner_telegram_id: int | None = None,
+    max_uses: int = 1,
+    expires_at: str | None = None
+):
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute("""
+            INSERT INTO off_codes 
+            (code, percent, is_global, owner_telegram_id, max_uses, created_at, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            code,
+            percent,
+            is_global,
+            owner_telegram_id,
+            max_uses,
+            tehran_now().strftime("%Y-%m-%d %H:%M:%S"),
+            expires_at
+        ))
+        await conn.commit()
+
+async def get_off_code(code: str):
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cursor = await conn.execute(
+            "SELECT * FROM off_codes WHERE code = ?",
+            (code,)
+        )
+        return await cursor.fetchone()
+
+async def validate_off_code(code: str, telegram_id: int):
+    off = await get_off_code(code)
+    if not off:
+        return False, "❌ کد تخفیف نامعتبر است."
+
+    (
+        _id, code_text, percent, is_global, owner_id,
+        max_uses, used_count, is_active,
+        created_at, expires_at
+    ) = off
+
+    if not is_active:
+        return False, "❌ این کد غیرفعال شده است."
+
+    if used_count >= max_uses:
+        return False, "❌ ظرفیت این کد تمام شده است."
+
+    if not is_global and owner_id != telegram_id:
+        return False, "❌ این کد فقط برای یک کاربر خاص است."
+
+    if expires_at:
+        if tehran_now() > datetime.strptime(expires_at, "%Y-%m-%d %H:%M:%S"):
+            return False, "❌ این کد منقضی شده است."
+
+    return True, percent
+
+async def mark_off_code_used(code: str):
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute("""
+            UPDATE off_codes
+            SET used_count = used_count + 1
+            WHERE code = ?
+        """, (code,))
+        await conn.commit()
+
+async def deactivate_off_code(code: str):
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute(
+            "UPDATE off_codes SET is_active = 0 WHERE code = ?",
+            (code,)
+        )
+        await conn.commit()
