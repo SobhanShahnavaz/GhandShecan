@@ -901,6 +901,13 @@ async def create_off_code(
         ))
         await conn.commit()
 
+async def get_all_off_codes():
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cursor = await conn.execute("SELECT * FROM off_codes")
+        rows = await cursor.fetchall()
+    return rows
+
+
 async def get_off_code(code: str):
     async with aiosqlite.connect(DB_PATH) as conn:
         cursor = await conn.execute(
@@ -951,3 +958,21 @@ async def deactivate_off_code(code: str):
             (code,)
         )
         await conn.commit()
+
+
+async def get_active_off_codes():
+    now_str = tehran_now().strftime("%Y-%m-%d %H:%M:%S")
+
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cursor = await conn.execute(
+            """
+            SELECT *
+            FROM off_codes
+            WHERE is_active = 1
+            AND (expires_at IS NULL OR expires_at > ?)
+            """,
+            (now_str,)
+        )
+        rows = await cursor.fetchall()
+
+    return rows

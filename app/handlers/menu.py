@@ -14,6 +14,7 @@ from app.services.database import get_user_stats,add_balance_by_telegram_id,tran
 from app.services.database import increase_approved_buy, add_transaction
 from app.services.database import add_data_added,add_agent_income,increment_agent_buys,add_buy_price,is_agent
 from app.services.database import get_user_price_for_plan,add_renew_price,add_gb_added
+from app.services.database import get_all_off_codes,validate_off_code
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import re
 from app.services.marzban_api import get_user_by_username,delete_user_from_marzban,delete_disabled_tests_in_marzban,create_Test_in_marzban
@@ -1655,6 +1656,69 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         
         await callback.message.edit_text("🧹 تست‌های غیرفعال پاک شدند.",reply_markup=kb)
 
+    elif data == "admin_manage_offcodes":
+        admin_user = callback.from_user.id
+        if admin_user != ADMIN_ID:
+            return
+        offs = await get_all_off_codes()
+        if not offs:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="افزودن تخفیف", callback_data="admin_add_offcode")],
+                [InlineKeyboardButton(text="بازگشت", callback_data="axtar_menu")]
+            ])
+            await callback.message.edit_text("تا به حال کد تخفیفی تعریف نشده، میتوانید با دکمه زیر کد جدید تعریف کنید.",
+                reply_markup = keyboard
+            )
+        else:
+            message = "کد های تخفیف و اطلاعاتشان :"
+            for o in offs:
+                offid,code,percent,is_global,owner_telegram_id,max_uses,used_count,is_active,create_time,expire_time = o
+                if is_global:
+                    code_type_t = "عمومی"
+                    P_id = ""
+                else:
+                    code_type_t = "خصوصی"
+                    P_id = owner_telegram_id
+                is_valid = await validate_off_code(code,owner_telegram_id)
+                if is_valid:
+                    is_valid_text = "معتبر"
+                else:
+                    is_valid_text = "نامعتبر"
+                text = f"{offid}) {code}, %{percent}, {code_type_t}, {is_valid_text} \n"
+                message = message + text
+            endmessage = "برای انجام عملیات روی کد های موجود شناسه(عدد قبل کد) را به خاطر سپرده و روی عملیات مدنظر خود کلیک کنید."
+            final_message = message + endmessage
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="افزودن جدید", callback_data="admin_add_offcode")],[InlineKeyboardButton(text="حذف یک کد", callback_data="admin_del_offcode")],
+                [InlineKeyboardButton(text="ویرایش کد", callback_data="admin_edit_offcode")],[InlineKeyboardButton(text="بازگشت", callback_data="axtar_menu")]
+            ])
+            await callback.message.edit_text(
+                final_message,
+                reply_markup= keyboard
+            )
+
+    elif data == "admin_add_offcode":
+        admin_user = callback.from_user.id
+        if admin_user != ADMIN_ID:
+            return
+        info = (
+            "لطفا اطلاعات زیر را بفرستید و بین آنها نقطه)(.) بگذارید.\n"
+            "متن کد،درصد تخفیف،عام یا خاص،تعداد دفعات،مهلت استفاده\n\n"
+            "<blockquote>توضیحات: متن فقط حروف انگلیسی،درصد فقط عدد،\n"
+            "اگر کد متعلق به فرد خاصی هست شناسه آن را در بخش عام یا خاص بودن بگذارید، در غیر اینصورت 0 بگذارید.\n"
+            "تعداد دفعات یعنی اینکه حداکثر چند کاربر میتوانند از کد استفاده کنند، به عبارت دیگر کد چند بار استفاده میشود.\n"
+            "برای مهلت استفاده هم مقدار ساعت بگذارید. مثلا اگر کد تا فردا باید فعال باشد 24 بگذارید.</blockquote>\n"
+            "مثالهای کلی از اینکه پیام باید چگونه باشد:\n"
+            "SHABYALDA.10.0.5.48\n"
+            "THISFORMMD.90.827895790.1.6\n"
+            "FASTTHREE.5.0.3.24\n"
+            " "
+        )
+        await callback.message.edit_text(info, reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="❌ لغو", callback_data="admin_manage_offcodes")]]
+            ))
+
+        
 
     elif data == "axtar_menu":
         modir = callback.from_user.first_name
