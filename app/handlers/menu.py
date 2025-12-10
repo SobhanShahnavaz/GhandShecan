@@ -14,7 +14,7 @@ from app.services.database import get_user_stats,add_balance_by_telegram_id,tran
 from app.services.database import increase_approved_buy, add_transaction
 from app.services.database import add_data_added,add_agent_income,increment_agent_buys,add_buy_price,is_agent
 from app.services.database import get_user_price_for_plan,add_renew_price,add_gb_added
-from app.services.database import get_all_off_codes,validate_off_code
+from app.services.database import get_all_off_codes,validate_off_code,create_off_code,delete_off_code_by_id
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import re
 from app.services.marzban_api import get_user_by_username,delete_user_from_marzban,delete_disabled_tests_in_marzban,create_Test_in_marzban
@@ -45,7 +45,7 @@ def to_persian_digits(n: int) -> str:
 RLO = "\u202E"   # Right-to-Left OVERRIDE  ✅ strongest
 PDI = "\u2069"   # Pop Direction Isolate
 RLM = "\u200F"   # Right-to-Left Mark
-
+LRO = "\u202D"  # Left-to-Right OVERRIDE
 def format_amount_button(amount: int) -> str:
     if amount > 999:
         million = amount // 1000
@@ -1670,7 +1670,7 @@ async def handle_menu_selection(callback: types.CallbackQuery):
                 reply_markup = keyboard
             )
         else:
-            message = "کد های تخفیف و اطلاعاتشان :"
+            message = "کد های تخفیف و اطلاعاتشان :\n"
             for o in offs:
                 offid,code,percent,is_global,owner_telegram_id,max_uses,used_count,is_active,create_time,expire_time = o
                 if is_global:
@@ -1684,13 +1684,13 @@ async def handle_menu_selection(callback: types.CallbackQuery):
                     is_valid_text = "معتبر"
                 else:
                     is_valid_text = "نامعتبر"
-                text = f"{offid}) {code}, %{percent}, {code_type_t}, {is_valid_text} \n"
-                message = message + text
-            endmessage = "برای انجام عملیات روی کد های موجود شناسه(عدد قبل کد) را به خاطر سپرده و روی عملیات مدنظر خود کلیک کنید."
-            final_message = message + endmessage
+                text = f"{LRO}{offid}) {code}, %{percent}, {code_type_t}, {is_valid_text} {PDI}\n"
+                message = message + text 
+            endmessage = "<blockquote>برای حذف کد های موجود شناسه(عدد قبل کد) را به خاطر سپرده و روی حذف کلیک کنید.</blockquote>"
+            final_message = message + "\n"  + endmessage
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="افزودن جدید", callback_data="admin_add_offcode")],[InlineKeyboardButton(text="حذف یک کد", callback_data="admin_del_offcode")],
-                [InlineKeyboardButton(text="ویرایش کد", callback_data="admin_edit_offcode")],[InlineKeyboardButton(text="بازگشت", callback_data="axtar_menu")]
+                [InlineKeyboardButton(text="بازگشت", callback_data="axtar_menu")]
             ])
             await callback.message.edit_text(
                 final_message,
@@ -1701,24 +1701,39 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         admin_user = callback.from_user.id
         if admin_user != ADMIN_ID:
             return
+        user_choices[admin_user] = {"action": "admin_add_offcode"}
         info = (
             "لطفا اطلاعات زیر را بفرستید و بین آنها نقطه)(.) بگذارید.\n"
             "متن کد،درصد تخفیف،عام یا خاص،تعداد دفعات،مهلت استفاده\n\n"
             "<blockquote>توضیحات: متن فقط حروف انگلیسی،درصد فقط عدد،\n"
             "اگر کد متعلق به فرد خاصی هست شناسه آن را در بخش عام یا خاص بودن بگذارید، در غیر اینصورت 0 بگذارید.\n"
             "تعداد دفعات یعنی اینکه حداکثر چند کاربر میتوانند از کد استفاده کنند، به عبارت دیگر کد چند بار استفاده میشود.\n"
-            "برای مهلت استفاده هم مقدار ساعت بگذارید. مثلا اگر کد تا فردا باید فعال باشد 24 بگذارید.</blockquote>\n"
+            "برای مهلت استفاده هم مقدار ساعت بگذارید. مثلا اگر کد تا فردا همین ساعت باید فعال باشد 24 بگذارید.</blockquote>\n"
             "مثالهای کلی از اینکه پیام باید چگونه باشد:\n"
             "SHABYALDA.10.0.5.48\n"
             "THISFORMMD.90.827895790.1.6\n"
             "FASTTHREE.5.0.3.24\n"
-            " "
+        )
+        await callback.message.edit_text(info, reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="❌ لغو", callback_data="admin_manage_offcodes")]]
+            ))
+    
+    elif data == "admin_del_offcode":
+        admin_user = callback.from_user.id
+        if admin_user != ADMIN_ID:
+            return
+        user_choices[admin_user] = {"action": "admin_del_offcode"}
+        info = (
+            
+            "<blockquote>از اقدام اطمینان حاصل کنید این مورد مرحله تایید دوباره ندارد!</blockquote>\n"
+            "شناسه کدی را که میخواهید آن را حذف کنید بفرستید.\n"
+            
+            
         )
         await callback.message.edit_text(info, reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[[InlineKeyboardButton(text="❌ لغو", callback_data="admin_manage_offcodes")]]
             ))
 
-        
 
     elif data == "axtar_menu":
         modir = callback.from_user.first_name
@@ -1742,7 +1757,12 @@ async def handle_text_inputs(message: types.Message):
     if action == "adding_plan":
         return await handle_admin_add_plan_input(message)
     
-    
+    if action =="admin_add_offcode":
+        return await handle_admin_add_offcode_input(message)
+
+    if action =="admin_del_offcode":
+        return await handle_admin_del_offcode_input(message)
+
     if action == "admin_send_credit":
         return await handle_admin_send_credit_input(message)
 
@@ -1850,7 +1870,67 @@ async def handle_admin_send_credit_input(message: types.Message):
         except Exception as e:
             print(f"[DEBUG] Error: {e}") 
             await message.answer(f" خطای دیتابیس:{e}")
+
+async def handle_admin_add_offcode_input(message:types.Message):
+    user_id = message.from_user.id
     
+    try:
+        themessagetext = str(message.text)
+        Code = str(themessagetext.split(".")[0])
+        Percentage = int(themessagetext.split(".")[1])
+        Globality = int(themessagetext.split(".")[2])
+        Max_uses = int(themessagetext.split(".")[3])
+        ExpireHours = int(themessagetext.split(".")[4])
+    except:
+        await message.answer("❌ خطای پردازش متن. با دقت به فرمت دوباره بفرستید:")
+        return
+    if Globality == 0:
+        globality = 1
+        code_owner = 0
+    else:
+        globality = 0
+        code_owner = Globality
+    Expire_timestamp = (tehran_now() + timedelta(hours=ExpireHours)).timestamp()
+    Expire_text = datetime.fromtimestamp(Expire_timestamp).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        await create_off_code(Code,Percentage,globality,code_owner,Max_uses,Expire_text)
+
+    except:
+        await message.bot.delete_message(message.chat.id, message.message_id - 1)
+        await message.answer("❌ خطای عملیات در پایگاه داده!")
+    user_choices.pop(user_id, None)
+    await message.bot.delete_message(message.chat.id, message.message_id - 1)
+    await message.answer(
+            "✔ کد با موفقیت تنظیم شد.\n\n",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="🔙 بازگشت", callback_data="axtar_menu")]]
+            )
+        )
+    return
+
+async def handle_admin_del_offcode_input(message:types.Message):
+    user_id = message.from_user.id
+    
+    try:
+        CodeId = int(message.text)
+    except:
+        await message.answer("❌ خطای پردازش. لطفا عدد بفرستید:")
+        return
+    try:
+        await delete_off_code_by_id(CodeId)
+
+    except:
+        await message.answer("❌ خطای عملیات در پایگاه داده!")
+    user_choices.pop(user_id, None)
+    await message.bot.delete_message(message.chat.id, message.message_id - 1)
+    await message.answer(
+            "✔ کد با موفقیت حذف شد.\n\n",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="🔙 بازگشت", callback_data="axtar_menu")]]
+            )
+        )
+    return
+
 async def handle_agent_send_credit_input(message: types.Message):
     user_id = message.from_user.id
     user_name = message.from_user.first_name

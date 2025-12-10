@@ -937,7 +937,8 @@ async def validate_off_code(code: str, telegram_id: int):
         return False, "❌ این کد فقط برای یک کاربر خاص است."
 
     if expires_at:
-        if tehran_now() > datetime.strptime(expires_at, "%Y-%m-%d %H:%M:%S"):
+        expires_dt = datetime.strptime(expires_at, "%Y-%m-%d %H:%M:%S").replace(tzinfo=ZoneInfo("Asia/Tehran"))
+        if tehran_now() > expires_dt:
             return False, "❌ این کد منقضی شده است."
 
     return True, percent
@@ -959,6 +960,13 @@ async def deactivate_off_code(code: str):
         )
         await conn.commit()
 
+async def delete_off_code_by_id(code_id: int):
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute(
+            "DELETE FROM off_codes WHERE id = ?",
+            (code_id,)
+        )
+        await conn.commit()
 
 async def get_active_off_codes():
     now_str = tehran_now().strftime("%Y-%m-%d %H:%M:%S")
