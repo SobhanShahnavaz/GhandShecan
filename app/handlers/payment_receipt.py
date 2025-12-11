@@ -48,12 +48,20 @@ async def handle_payment_receipt(message: types.Message):
     order_type = user_data.get("action", "buy")
     userlimit = user_data.get("user_limit", 1)
     maxdevtext = user_data.get("max_device", "نامعلوم")
+    Off_percent = user_data.get("Off_Percent",0)
+    Haveoff = False
+    if Off_percent>0:
+        Haveoff = True
+        planrealprice = price
+        price = price - (price * Off_percent // 100)
+        OffCode = user_data.get("Off_Code")
+        Code_Id = user_data.get("code_id")
     if is_agent:
         CoworkOrCust = "نماینده"
     else:
         CoworkOrCust = "کاربر"
     # ذخیره در دیتابیس
-    order_id = await add_order(telegram_id, config_name, price, duration, size, file_id, order_type,userlimit)
+    order_id = await add_order(telegram_id, config_name, price, duration, size, file_id, order_type,userlimit,Off_percent)
     if order_type == "renew":
         order_type_text = "تمدید"
     elif order_type == "add_data":
@@ -81,7 +89,7 @@ async def handle_payment_receipt(message: types.Message):
     else:
         text_price =f"{price} هزار تومان"
     # پیام برای مدیر
-    caption = (
+    caption1 = (
         f"📥 <b>رسید جدید پرداخت</b>\n\n"
         f"👤 <b>{CoworkOrCust}:</b> @{message.from_user.username or message.from_user.full_name}\n"
         f"🆔 <code>{telegram_id}</code>\n"
@@ -91,9 +99,15 @@ async def handle_payment_receipt(message: types.Message):
         f"⏱ <b>محدودیت کاربر:</b> {maxdevtext} کاربره\n"
         f"📦 <b>حجم:</b> {size} گیگ\n"
         f"💰 <b>مبلغ:</b> {text_price} \n"
+    )
+    
+    TexDate = (
         f"🕒 <b>تاریخ:</b> {tehran_now().strftime('%Y-%m-%d %H:%M:%S')}"
     )
-
+    caption = caption1 + TexDate
+    if Haveoff:
+        Textoffcode = f"⭕ کد تخفیف: {OffCode} , درصد: {Off_percent}\n"
+        caption = caption1 + Textoffcode + TexDate
     # ساخت کیبورد برای مدیر
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[ 
     InlineKeyboardButton(text="✅ تأیید پرداخت", callback_data=f"order_approve_{order_id}"),
@@ -101,7 +115,7 @@ async def handle_payment_receipt(message: types.Message):
 ]])
 
     try:
-        # ارسال به کانال (بدون دکمه، فقط آرشیو)
+        # ارسال به کانال (بدون button، فقط آرشیو)
         await message.bot.send_photo(
             chat_id=ORDERS_CHANNEL_ID,
             photo=file_id,
@@ -126,5 +140,4 @@ async def handle_payment_receipt(message: types.Message):
     # این پیام آیدی مدیر بود:
     # admin_msg_id = sent_admin_msg.message_id
 
-    # پاک‌سازی انتخاب‌های کاربر بعد از اتمام پرداخت
-    user_choices.pop(telegram_id, None)
+    

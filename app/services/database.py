@@ -64,10 +64,12 @@ async def init_db():
                 created_at TEXT,
                 type TEXT,
                 user_limit INTEGER,
+                offpercent INTEGER DEFAULT 0,
                 FOREIGN KEY (telegram_user_id) REFERENCES telegram_users(id)
+                
             )
         """)
-
+        
         await db.commit()
 
         await db.execute("""
@@ -202,8 +204,19 @@ async def init_db():
             """)
         await db.commit()
         
+        await db.execute("""
+                CREATE TABLE IF NOT EXISTS off_code_usage (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    code_id INTEGER,
+                    telegram_id INTEGER,
+                    used_at TEXT,
+                    UNIQUE(code_id, telegram_id)  -- prevents duplicate usage
+                )
 
+            """)
+        await db.commit()
         
+
 
 
         
@@ -347,13 +360,13 @@ async def delete_marzban_account(Account_id: str):
 
 # 🧾 جدول سفارش‌ها (پرداخت‌ها)
 
-async def add_order(telegram_user_id: int, plan_name: str, price: int,duration:int, data_limit:int, payment_proof_file_id: str, order_type:str = None, user_limit:int = 1):
+async def add_order(telegram_user_id: int, plan_name: str, price: int,duration:int, data_limit:int, payment_proof_file_id: str, order_type:str = None, user_limit:int = 1,offPercent:int = 0):
     """افزودن سفارش جدید (بعد از اینکه کاربر رسید ارسال کرد)"""
     
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute("""
-            INSERT INTO orders (telegram_user_id, plan_name, price, duration, data_limit, payment_proof_file_id, status, created_at, type, user_limit)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO orders (telegram_user_id, plan_name, price, duration, data_limit, payment_proof_file_id, status, created_at, type, user_limit,offpercent)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?)
         """, (
             telegram_user_id,
             plan_name,
@@ -364,7 +377,8 @@ async def add_order(telegram_user_id: int, plan_name: str, price: int,duration:i
             "pending",
             tehran_now().strftime("%Y-%m-%d %H:%M:%S"),
             order_type,
-            user_limit
+            user_limit,
+            offPercent
         ))
         await db.commit()
         return cursor.lastrowid 
@@ -378,6 +392,20 @@ async def get_pending_orders():
         """)
         rows = await cursor.fetchall()
         return rows
+
+async def user_has_pending_order(telegram_user_id: int) -> bool:
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cursor = await conn.execute(
+            """
+            SELECT 1 FROM orders
+            WHERE telegram_user_id = ?
+            AND status = 'pending'
+            LIMIT 1
+            """,
+            (telegram_user_id,)
+        )
+        row = await cursor.fetchone()
+        return row is not None
 
 
 async def get_orders_by_user(telegram_user_id: int):
@@ -935,6 +963,9 @@ async def validate_off_code(code: str, telegram_id: int):
 
     if not is_global and owner_id != telegram_id:
         return False, "❌ این کد فقط برای یک کاربر خاص است."
+    if is_global:
+        if await has_used_code(_id, telegram_id):
+            return False, "❌ شما قبلاً از این کد استفاده کرده‌اید."
 
     if expires_at:
         expires_dt = datetime.strptime(expires_at, "%Y-%m-%d %H:%M:%S").replace(tzinfo=ZoneInfo("Asia/Tehran"))
@@ -984,3 +1015,19 @@ async def get_active_off_codes():
         rows = await cursor.fetchall()
 
     return rows
+
+async def has_used_code(code_id: int, telegram_id: int):
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cursor = await conn.execute(
+            "SELECT 1 FROM off_code_usage WHERE code_id = ? AND telegram_id = ?",
+            (code_id, telegram_id)
+        )
+        return await cursor.fetchone() is not None
+
+async def mark_user_used_code(code_id: int, telegram_id: int):
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute(
+            "INSERT OR IGNORE INTO off_code_usage (code_id, telegram_id, used_at) VALUES (?, ?, ?)",
+            (code_id, telegram_id, tehran_now().strftime("%Y-%m-%d %H:%M:%S"))
+        )
+        await conn.commit()

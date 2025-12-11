@@ -11,10 +11,10 @@ from app.services.database import count_test_accounts,add_test_account,get_all_t
 from app.services.database import get_all_cards,add_card,get_active_card,activate_card,update_order_status
 from app.services.database import get_all_tutorials,update_tutorial_link,get_tutorials_by_device
 from app.services.database import get_user_stats,add_balance_by_telegram_id,transfer_balance
-from app.services.database import increase_approved_buy, add_transaction
+from app.services.database import increase_approved_buy, add_transaction,user_has_pending_order
 from app.services.database import add_data_added,add_agent_income,increment_agent_buys,add_buy_price,is_agent
 from app.services.database import get_user_price_for_plan,add_renew_price,add_gb_added
-from app.services.database import get_all_off_codes,validate_off_code,create_off_code,delete_off_code_by_id
+from app.services.database import get_all_off_codes,validate_off_code,create_off_code,delete_off_code_by_id,mark_off_code_used,get_off_code,mark_user_used_code
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import re
 from app.services.marzban_api import get_user_by_username,delete_user_from_marzban,delete_disabled_tests_in_marzban,create_Test_in_marzban
@@ -91,6 +91,9 @@ async def handle_menu_selection(callback: types.CallbackQuery):
     # ----------------------------
     if data == "buy_config":
         telegram_id = callback.from_user.id
+        if await user_has_pending_order(telegram_id):
+            await callback.message.answer("❌ شما یک سفارش در حال بررسی دارید. تا تعیین وضعیت آن منتظر بمانید.")
+            return
 
         # Detect if user is agent or normal user
         is_agent_user = await is_agent(telegram_id)
@@ -133,7 +136,7 @@ async def handle_menu_selection(callback: types.CallbackQuery):
             await callback.message.edit_text("⚠️ هیچ پلنی با این مدت وجود ندارد.")
             return
     
-         # NEW: show user limit selection before plan selection
+        # NEW: show user limit selection before plan selection
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="تک کاربر", callback_data="limit_1")],
             [InlineKeyboardButton(text="3 کاربر", callback_data="limit_3")],
@@ -429,6 +432,9 @@ async def handle_menu_selection(callback: types.CallbackQuery):
 
     elif data == "charge_wallet":
         telegram_id = callback.from_user.id
+        if await user_has_pending_order(telegram_id):
+            await callback.message.answer("❌ شما یک سفارش در حال بررسی دارید. تا تعیین وضعیت آن منتظر بمانید.")
+            return
         user_choices[telegram_id] = {"action": "charge_wallet", "step": 1}
 
         await callback.message.edit_text(
@@ -578,7 +584,18 @@ async def handle_menu_selection(callback: types.CallbackQuery):
             "در صورت لغو، از منوی اصلی گزینه‌ی دیگری را انتخاب کنید.",
             parse_mode="HTML"
         )
-        
+    elif data == "have_off_code":
+        telegram_id = callback.from_user.id
+        user_choices[telegram_id]["havecode"] = 1
+        await callback.answer()
+        await callback.message.delete() 
+        await callback.message.answer(
+            "کد خود را بدون متن اضافه بفرستید.",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="❌ لغو", callback_data="cancel_payment")]]
+            )
+        )   
 
     elif data == "pay_with_wallet":
         telegram_id = callback.from_user.id
@@ -591,6 +608,7 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         telegramuser = await get_user(telegram_id)
         balance = telegramuser[9]
         user_data = user_choices.get(telegram_id)
+        user_choices.pop(telegram_id, None)
         file_id = "wallet"
         config_name = user_data.get("config_name", "بدون نام")
         duration = user_data.get("duration", 0)
@@ -600,6 +618,14 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         order_type = user_data.get("action", "buy")
         userlimit = user_data.get("user_limit", 1)
         maxdevtext = user_data.get("max_device", "نامعلوم")
+        Off_percent = user_data.get("Off_Percent",0)
+        Haveoff = False
+        if Off_percent>0:
+            Haveoff = True
+            planrealprice = price
+            price = price - (price * Off_percent // 100)
+            OffCode = user_data.get("Off_Code")
+            Code_Id = user_data.get("code_id")
         R_order_type = file_id + "_" + order_type
         if balance < price: 
             await callback.message.answer(f"امکان پرداخت وجود ندارد.\n موجودی شما:{balance}، مبلغ سفارش:{price}")
@@ -610,11 +636,13 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         else:
             CoworkOrCust = "کاربر"
         # ذخیره در دیتابیس
-        order_id = await add_order(telegram_id, config_name, price, duration, size, file_id, R_order_type ,userlimit)
+        order_id = await add_order(telegram_id, config_name, price, duration, size, file_id, R_order_type ,userlimit,Off_percent)
         minus_amount = (abs(price)) * -1
         await add_balance_by_telegram_id(telegram_id,minus_amount)
         await update_order_status(order_id, "approved")
-
+        if Haveoff:
+            await mark_off_code_used(OffCode)
+            await mark_user_used_code(Code_Id,telegram_id)
         if order_type == "renew":
             
             order_type_text = "تمدید"
@@ -680,9 +708,14 @@ async def handle_menu_selection(callback: types.CallbackQuery):
             await update_marzban_account_after_renew(acc_id, new_expire_ts, size_gb)
             await callback.answer()
             await callback.message.delete() 
-            await callback.bot.send_message(
-                    LOG_CHANNEL_ID,  
-                    f" <a href='tg://user?id={telegram_id}'>{CoworkOrCust}</a> تراکنش {order_type_text} حساب {panel_username} را با موجودی پرداخت کرد.")
+            if Haveoff:
+                await callback.bot.send_message(
+                        LOG_CHANNEL_ID,  
+                        f" <a href='tg://user?id={telegram_id}'>{CoworkOrCust}</a> تراکنش {order_type_text} حساب {panel_username} را با موجودی و کد تخفیف {Off_percent}% پرداخت کرد.")
+            else:
+                await callback.bot.send_message(
+                        LOG_CHANNEL_ID,  
+                        f" <a href='tg://user?id={telegram_id}'>{CoworkOrCust}</a> تراکنش {order_type_text} حساب {panel_username} را با موجودی پرداخت کرد.")
             
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="🔙 بازگشت به منو", callback_data="back_to_menu")]
@@ -753,8 +786,8 @@ async def handle_menu_selection(callback: types.CallbackQuery):
                 )
                 return
 
-            # آپدیت دیتابیس لوکال
-            await update_marzban_account_after_renew(acc_id, Expire, new_limit_gb)
+            
+            
             await callback.answer()
             await callback.message.delete() 
             await callback.bot.send_message(
@@ -765,9 +798,14 @@ async def handle_menu_selection(callback: types.CallbackQuery):
             ])
             )
 
-            await callback.bot.send_message(
-                    LOG_CHANNEL_ID,  
-                    f" <a href='tg://user?id={telegram_id}'>{CoworkOrCust}</a> تراکنش {order_type_text} حساب {panel_username} را با موجودی پرداخت کرد.")
+            if Haveoff:
+                await callback.bot.send_message(
+                        LOG_CHANNEL_ID,  
+                        f" <a href='tg://user?id={telegram_id}'>{CoworkOrCust}</a> تراکنش {order_type_text} حساب {panel_username} را با موجودی و کد تخفیف {Off_percent}% پرداخت کرد.")
+            else:
+                await callback.bot.send_message(
+                        LOG_CHANNEL_ID,  
+                        f" <a href='tg://user?id={telegram_id}'>{CoworkOrCust}</a> تراکنش {order_type_text} حساب {panel_username} را با موجودی پرداخت کرد.")
             #افزایش آمار کاربر
             await add_transaction(telegram_id,price)
 
@@ -817,6 +855,7 @@ async def handle_menu_selection(callback: types.CallbackQuery):
                 ])
                 await callback.answer()
                 await callback.message.delete() 
+                # ارسال لینک به کاربر
                 await callback.bot.send_message(
                     telegram_id,
                     f"✅ حساب شما ساخته شد!\n\n"
@@ -824,13 +863,18 @@ async def handle_menu_selection(callback: types.CallbackQuery):
                     parse_mode="HTML",
                     reply_markup=keyboard
                 )
-                # ارسال لینک به کاربر
                 
-                await callback.bot.send_message(
-                    LOG_CHANNEL_ID,  
-                    f" <a href='tg://user?id={telegram_id}'>{CoworkOrCust}</a> تراکنش {order_type_text} حساب {Plan_name} را با موجودی پرداخت کرد.")
+                if Haveoff:
+                    await callback.bot.send_message(
+                            LOG_CHANNEL_ID,  
+                            f" <a href='tg://user?id={telegram_id}'>{CoworkOrCust}</a> تراکنش {order_type_text} حساب {Plan_name} را با موجودی و کد تخفیف {Off_percent}% پرداخت کرد.")
+                else:
+                    await callback.bot.send_message(
+                            LOG_CHANNEL_ID,  
+                            f" <a href='tg://user?id={telegram_id}'>{CoworkOrCust}</a> تراکنش {order_type_text} حساب {Plan_name} را با موجودی پرداخت کرد.")
+                
             except Exception as e:
-                await callback.bot.send_message(telegram_id, "⚠️ خطا در ساخت حساب در پنل. پشتیبانی در حال بررسی است.")
+                await callback.bot.send_message(telegram_id, "⚠️ خطا در ساخت حساب در پنل. با پشتیبانی فنی ارتباط بگیرید.")
                 await callback.bot.send_message(
                     ADMIN_ID,  
                     "خطایی در روند خرید با موجودی رخ داد. لطفا خطاهارا بررسی کنید!")
@@ -978,6 +1022,9 @@ async def handle_menu_selection(callback: types.CallbackQuery):
     elif data.startswith("add_data_"):
         acc_id = int(data.split("_")[2])
         telegram_id = callback.from_user.id
+        if await user_has_pending_order(telegram_id):
+            await callback.message.answer("❌ شما یک سفارش در حال بررسی دارید. تا تعیین وضعیت آن منتظر بمانید.")
+            return
 
         try:
             await callback.message.delete()
@@ -1022,7 +1069,8 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         if telegram_id not in user_choices:
             await callback.message.answer("⚠️ مشکلی پیش آمد. دوباره تلاش کنید.")
             return
-
+        is_agent_user = await is_agent(telegram_id)
+        for_agent = 1 if is_agent_user else 0
         gb = int(data.split("_")[1])
 
         price_map = {
@@ -1033,7 +1081,7 @@ async def handle_menu_selection(callback: types.CallbackQuery):
 
         user_choices[telegram_id]["size"] = gb
         user_choices[telegram_id]["price"] = price
-
+        user_choices[telegram_id]["is_agent"] = for_agent
         
         await callback.message.edit_text(
             f"📌 حجم انتخاب‌شده: {gb}GB\n"
@@ -1046,6 +1094,9 @@ async def handle_menu_selection(callback: types.CallbackQuery):
     elif data.startswith("renew_acc_"):
         acc_id = int(data.replace("renew_acc_", ""))
         telegram_id = callback.from_user.id
+        if await user_has_pending_order(telegram_id):
+            await callback.message.answer("❌ شما یک سفارش در حال بررسی دارید. تا تعیین وضعیت آن منتظر بمانید.")
+            return
         is_agent_user = await is_agent(telegram_id)
         for_agent = 1 if is_agent_user else 0
 
@@ -1679,11 +1730,11 @@ async def handle_menu_selection(callback: types.CallbackQuery):
                 else:
                     code_type_t = "خصوصی"
                     P_id = owner_telegram_id
-                is_valid = await validate_off_code(code,owner_telegram_id)
+                is_valid, result = await validate_off_code(code,owner_telegram_id)
                 if is_valid:
                     is_valid_text = "معتبر"
                 else:
-                    is_valid_text = "نامعتبر"
+                    is_valid_text = result
                 text = f"{LRO}{offid}) {code}, %{percent}, {code_type_t}, {is_valid_text} {PDI}\n"
                 message = message + text 
             endmessage = "<blockquote>برای حذف کد های موجود شناسه(عدد قبل کد) را به خاطر سپرده و روی حذف کلیک کنید.</blockquote>"
@@ -1748,10 +1799,16 @@ async def handle_text_inputs(message: types.Message):
         return
 
     action = user_choices[user_id].get("action")
-     
+    offflow= user_choices[user_id].get("havecode")
     # Config name input
     if action == "buy":
+        if offflow == 1:
+            return await handle_payment_with_offcode(message)
         return await handle_config_name(message)
+
+    #checking payments with off-code
+    if offflow == 1:
+        return await handle_payment_with_offcode(message)
 
     # Admin adding plan
     if action == "adding_plan":
@@ -2249,3 +2306,40 @@ async def handle_user_recharge(message: types.Message):
         parse_mode="HTML",
         reply_markup=keyboard
     )
+
+async def handle_payment_with_offcode(message: types.Message):
+    user_id = message.from_user.id
+    if user_id not in user_choices:
+        return  # هیچ انتخاب فعالی نداره
+    try:
+        Off_Code = str(message.text)
+    except:
+        await message.answer("❌ خطا در پردازش متن! دوباره وارد کنید:",reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="❌ لغو", callback_data="cancel_payment")]]
+            ))
+        return
+    data = user_choices[user_id]
+    price = data["price"]
+    is_valid,Result = await validate_off_code(Off_Code,user_id)
+    if is_valid:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳 انتقال به کارت", callback_data="waiting_for_receipt")],
+        [InlineKeyboardButton(text="💰 پرداخت از موجودی", callback_data="pay_with_wallet")],
+        [InlineKeyboardButton(text="❌ منصرف شدم", callback_data="cancel_payment")]
+        ])
+        percent = Result
+        codedata = await get_off_code(Off_Code)
+        code_id = codedata[0] 
+        user_choices[user_id]["Off_Percent"] = percent
+        user_choices[user_id]["Off_Code"] = Off_Code
+        user_choices[user_id]["code_id"] = code_id
+        new_price =  price - (price * percent // 100)
+        text_message = f"خب کد شما معتبره و {percent}% تخفیف روی پرداختتون اعمال شد. مبلغ پرداختی جدید: {new_price} هزار تومان.\n حالا یکی از روش های زیر رو انتخاب کنید."
+        await message.bot.delete_message(message.chat.id, message.message_id - 1)
+        await message.answer(text_message, reply_markup=keyboard)
+    else:
+        Error = Result
+        await message.answer(f" خطا:{Error}",reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="❌ لغو عملیات", callback_data="cancel_payment")]]
+            ))
+        return

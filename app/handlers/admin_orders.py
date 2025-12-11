@@ -8,6 +8,8 @@ from app.services.database import add_data_added,add_agent_income,increment_agen
 from app.services.database import get_user_price_for_plan,add_renew_price,add_gb_added
 from app.services.database import get_tutorials_by_device,add_balance_by_telegram_id
 from app.services.database import increase_approved_buy, add_transaction
+from app.services.database import mark_off_code_used,mark_user_used_code
+from app.handlers.menu import user_choices 
 from zoneinfo import ZoneInfo
 
 router = Router()
@@ -34,13 +36,25 @@ async def approve_order(callback: types.CallbackQuery):
         await callback.answer("❌ سفارش پیدا نشد!", show_alert=True)
         return
     user = await get_user(user_id)
+    price = order[3] if isinstance(order, (list, tuple)) else order["price"]
+    Off_percent = order[11]
+    user_data = user_choices.get(user_id)
+    Haveoff = False
+    if Off_percent>0:
+        Haveoff = True
+        OffCode = user_data.get("Off_Code")
+        Code_Id = user_data.get("code_id")
+    user_choices.pop(user_id, None)
     await update_order_status(order_id, "approved")
+    if Haveoff:
+        await mark_off_code_used(OffCode)
+        await mark_user_used_code(Code_Id,user_id)
     order_type = order[9] if isinstance(order, (list, tuple)) else order["type"]
     
     if order_type == "renew":
         telegram_user_id  = order[1] if isinstance(order, (list, tuple)) else order["acc_id"]
         plan_name = order[2] if isinstance(order, (list, tuple)) else order["plan_name"]
-        price = order[3] if isinstance(order, (list, tuple)) else order["price"]
+        
         size_of_gg_in_order = order[5] if isinstance(order, (list, tuple)) else order["data_limit"]
         devicelimit = order[10] if isinstance(order, (list, tuple)) else order["user_limit"]
         # گرفتن اطلاعات حساب از دیتابیس
@@ -147,7 +161,7 @@ async def approve_order(callback: types.CallbackQuery):
         telegram_user_id = order[1]
         plan_name = order[2]
         gb_to_add = order[5]   # this is the "size" field
-        price = order[3]
+        
 
         account = await get_marzban_account_by_user_plan(telegram_user_id, plan_name)
         if not account:
@@ -183,8 +197,7 @@ async def approve_order(callback: types.CallbackQuery):
             )
             return
 
-        # آپدیت دیتابیس لوکال
-        await update_marzban_account_after_renew(acc_id, Expire, new_limit_gb)
+        
 
         await callback.bot.send_message(
             telegram_user_id,
@@ -257,7 +270,7 @@ async def approve_order(callback: types.CallbackQuery):
             # ساخت یوزر در مرزبان
             config_name = order[2] if isinstance(order, (list, tuple)) else order["plan_name"]
             Plan_name = config_name + "-" + prefix
-            price = order[3] if isinstance(order, (list, tuple)) else order["price"]
+            
             duration = order[4] if isinstance(order, (list, tuple)) else order["duration"]
             data_limit = order[5] if isinstance(order, (list, tuple)) else order["data_limit"]
             devicelimit = order[10] if isinstance(order, (list, tuple)) else order["user_limit"]
@@ -344,7 +357,7 @@ async def reject_order(callback: types.CallbackQuery):
         return
 
     await update_order_status(order_id, "rejected")
-
+    user_choices.pop(user_id, None)
     try:
         await callback.bot.send_message(
             user_id,  
