@@ -2,6 +2,7 @@ from aiogram import Router, types, F
 from app.keyboards.main_menu import main_menu_keyboard,request_cooperation_keyboard,agent_menu_keyboard
 from app.keyboards.admin_menu import admin_menu_keyboard
 from app.keyboards.pay_methods import Payment_keyboard
+from app.keyboards.custom_plan import custom_plan_keyboard
 from app.services import marzban_api
 from app.services.database import add_order , get_marzban_account_by_id,delete_marzban_account,list_agent_requests,get_user_id
 from app.services.database import get_marzban_accounts_by_user,get_agent,get_plan_price_by_DMA, get_user,add_agent_request
@@ -31,6 +32,9 @@ ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
 LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID"))
 ORDERS_CHANNEL_ID = int(os.getenv("ORDERS_CHANNEL_ID"))
 SUPPORT_ACC_ID = int(os.getenv("SUPPORT_ACC_ID"))
+
+
+Admin_custom_plan = {}
 
 # حافظه موقت برای نگهداری انتخاب‌های کاربر
 user_choices = {}
@@ -1469,6 +1473,9 @@ async def handle_menu_selection(callback: types.CallbackQuery):
             await callback.answer()
 
     elif data == "admin_show_plans":
+        admin_user = callback.from_user.id
+        if admin_user != ADMIN_ID:
+            return
         plans = await get_plans()
 
         if not plans:
@@ -1552,6 +1559,8 @@ async def handle_menu_selection(callback: types.CallbackQuery):
 
     elif data == "set_tutor_links":
         admin_user = callback.from_user.id
+        if admin_user != ADMIN_ID:
+            return
         tutorials = await get_all_tutorials()
 
         kb = InlineKeyboardMarkup(inline_keyboard=[])
@@ -1686,6 +1695,8 @@ async def handle_menu_selection(callback: types.CallbackQuery):
 
     elif data == "admin_send_credit":
         admin_user = callback.from_user.id
+        if admin_user != ADMIN_ID:
+            return
         user_choices[admin_user] = {"action": "admin_send_credit", "step": 1}
 
         await callback.message.edit_text(
@@ -1695,6 +1706,173 @@ async def handle_menu_selection(callback: types.CallbackQuery):
             )
         )
 
+    elif data == "create_custom_plan":
+        admin_user = callback.from_user.id
+        if admin_user != ADMIN_ID:
+            return
+        telegram_id = callback.from_user.id
+
+        Admin_custom_plan[admin_user] = {
+            "gb": 1,
+            "days": 1
+        }
+        gb = Admin_custom_plan[admin_user]["gb"]
+        days = Admin_custom_plan[admin_user]["days"]
+        await callback.message.edit_text(
+            "🔧 بساز ببینم چیکاره ای:",
+            reply_markup=custom_plan_keyboard(gb, days)
+        )
+    
+    elif data == "inc_gb":
+        telegram_id = callback.from_user.id
+        Admin_custom_plan[telegram_id]["gb"] += 1
+        gb = Admin_custom_plan[telegram_id]["gb"]
+        days = Admin_custom_plan[telegram_id]["days"]
+        await callback.message.edit_text(
+            "🔧 بساز ببینم چیکاره ای:",
+            reply_markup=custom_plan_keyboard(gb, days)
+        )
+
+    elif data == "dec_gb":
+        telegram_id = callback.from_user.id
+        if Admin_custom_plan[telegram_id]["gb"] > 1:
+            Admin_custom_plan[telegram_id]["gb"] -= 1
+        gb = Admin_custom_plan[telegram_id]["gb"]
+        days = Admin_custom_plan[telegram_id]["days"]
+        await callback.message.edit_text(
+            "🔧 بساز ببینم چیکاره ای:",
+            reply_markup=custom_plan_keyboard(gb, days)
+        )
+
+    elif data == "inc_gb_big":
+        telegram_id = callback.from_user.id
+        Admin_custom_plan[telegram_id]["gb"] += 10
+        gb = Admin_custom_plan[telegram_id]["gb"]
+        days = Admin_custom_plan[telegram_id]["days"]
+        await callback.message.edit_text(
+            "🔧 بساز ببینم چیکاره ای:",
+            reply_markup=custom_plan_keyboard(gb, days)
+        )
+
+    elif data == "dec_gb_big":
+        telegram_id = callback.from_user.id
+        if Admin_custom_plan[telegram_id]["gb"] > 10:
+            Admin_custom_plan[telegram_id]["gb"] -= 10
+        gb = Admin_custom_plan[telegram_id]["gb"]
+        days = Admin_custom_plan[telegram_id]["days"]
+        await callback.message.edit_text(
+            "🔧 بساز ببینم چیکاره ای:",
+            reply_markup=custom_plan_keyboard(gb, days)
+        )
+
+    elif data == "inc_days":
+        telegram_id = callback.from_user.id
+        Admin_custom_plan[telegram_id]["days"] += 1
+        gb = Admin_custom_plan[telegram_id]["gb"]
+        days = Admin_custom_plan[telegram_id]["days"]
+        await callback.message.edit_text(
+            "🔧 بساز ببینم چیکاره ای:",
+            reply_markup=custom_plan_keyboard(gb, days)
+        )
+
+    elif data == "dec_days":
+        telegram_id = callback.from_user.id
+        if Admin_custom_plan[telegram_id]["days"] > 1:
+            Admin_custom_plan[telegram_id]["days"] -= 1
+        gb = Admin_custom_plan[telegram_id]["gb"]
+        days = Admin_custom_plan[telegram_id]["days"]
+        await callback.message.edit_text(
+            "🔧 بساز ببینم چیکاره ای:",
+            reply_markup=custom_plan_keyboard(gb, days)
+        )
+
+    elif data == "inc_days_big":
+        telegram_id = callback.from_user.id
+        Admin_custom_plan[telegram_id]["days"] += 10
+        gb = Admin_custom_plan[telegram_id]["gb"]
+        days = Admin_custom_plan[telegram_id]["days"]
+        await callback.message.edit_text(
+            "🔧 بساز ببینم چیکاره ای:",
+            reply_markup=custom_plan_keyboard(gb, days)
+        )
+
+    elif data == "dec_days_big":
+        telegram_id = callback.from_user.id
+        if Admin_custom_plan[telegram_id]["days"] > 10:
+            Admin_custom_plan[telegram_id]["days"] -= 10
+        gb = Admin_custom_plan[telegram_id]["gb"]
+        days = Admin_custom_plan[telegram_id]["days"]
+        await callback.message.edit_text(
+            "🔧 بساز ببینم چیکاره ای:",
+            reply_markup=custom_plan_keyboard(gb, days)
+        )
+
+    elif data == "admin_custom_next":
+        admin_user = callback.from_user.id
+        if admin_user != ADMIN_ID:
+            return
+        gb = Admin_custom_plan[admin_user]["gb"]
+        days = Admin_custom_plan[admin_user]["days"]
+        Admin_custom_plan[admin_user] = {
+            "action": "admin_custom_plan_name",
+            "gb": gb,
+            "days": days
+        }
+        estimatedprice = math.ceil((gb * 600)/1000)
+        await callback.message.edit_text(
+            f"📋 پلن ساخته‌شده:\n"
+            f"⏱ مدت: {days} روزه\n"
+            f"📦 حجم: {gb} GB\n"
+            f"💰 هزینه خالص: {estimatedprice} هزار تومان\n\n"   
+            "📝 لطفاً یک نام انگلیسی برای کانفیگ وارد کنید:(بیش از 2 حرف داشته باشد)",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text=" برگشتن", callback_data="create_custom_plan")]]
+            )
+        )
+
+    elif data =="confirm_custom_config":
+        admin_user = callback.from_user.id
+        telegram_username = callback.from_user.username
+        if admin_user != ADMIN_ID:
+            return
+        admin_data = Admin_custom_plan.get(admin_user)
+        Admin_custom_plan.pop(admin_user, None)
+        config_name = admin_data.get("config_name", "بدون نام")
+        days = admin_data.get("days", 0)
+        duration = round(days/30)
+        size = admin_data.get("gb", 0)
+        expire_timestamp = int((tehran_now() + timedelta(days)).timestamp())
+        Plan_name = config_name + "-" + telegram_username
+        data_limit = int(size)
+        try:
+            sub_link = await create_user_in_marzban(username=Plan_name, data_limit_gb=data_limit, expire_days= days)
+            await add_marzban_account(admin_user,Plan_name,"Active",expire_timestamp,0,sub_link,duration,data_limit,1)
+            device_android = await get_tutorials_by_device("Usage","Android")
+            ANDROID_MESSAGE_URL = device_android[4]
+            device_ios = await get_tutorials_by_device("Usage","IOS")
+            IOS_MESSAGE_URL = device_ios[4]
+            device_windows = await get_tutorials_by_device("Usage","Windows")
+            WINDOWS_MESSAGE_URL = device_windows[4]
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📘 نحوه استفاده اندروید", url=ANDROID_MESSAGE_URL)],
+                [InlineKeyboardButton(text="📘 نحوه استفاده آیفون", url=IOS_MESSAGE_URL)],
+                [InlineKeyboardButton(text="📘 نحوه استفاده ویندوز", url=WINDOWS_MESSAGE_URL)],
+                [InlineKeyboardButton(text="🔙 بازگشت به منو", callback_data="back_to_menu_without_del")]
+            ])
+            await callback.answer()
+            await callback.message.delete() 
+            # ارسال لینک به کاربر
+            await callback.bot.send_message(
+                admin_user,
+                f"✅ حساب ساخته شد!\n\n"
+                f"🔗 <b>لینک اشتراک:</b>\n<code>{sub_link}</code>",
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+        except Exception as e:
+            await callback.bot.send_message(admin_user, "⚠️ خطا در ساخت حساب در پنل. با پشتیبان فنی ارتباط بگیرید.")
+            print(f"[Marzban Error] {e}")
     
     elif data == "remove_disabled_tests":
         usernames = await get_all_test_usernames()
@@ -1740,7 +1918,8 @@ async def handle_menu_selection(callback: types.CallbackQuery):
             endmessage = "<blockquote>برای حذف کد های موجود شناسه(عدد قبل کد) را به خاطر سپرده و روی حذف کلیک کنید.</blockquote>"
             final_message = message + "\n"  + endmessage
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="افزودن جدید", callback_data="admin_add_offcode")],[InlineKeyboardButton(text="حذف یک کد", callback_data="admin_del_offcode")],
+                [InlineKeyboardButton(text="افزودن جدید", callback_data="admin_add_offcode"),InlineKeyboardButton(text="حذف یک کد", callback_data="admin_del_offcode")],
+                [InlineKeyboardButton(text="حذف نامعتبرها(خودکار)", callback_data="admin_del_invalid_offcode")],
                 [InlineKeyboardButton(text="بازگشت", callback_data="axtar_menu")]
             ])
             await callback.message.edit_text(
@@ -1785,6 +1964,24 @@ async def handle_menu_selection(callback: types.CallbackQuery):
                 inline_keyboard=[[InlineKeyboardButton(text="❌ لغو", callback_data="admin_manage_offcodes")]]
             ))
 
+    elif data == "admin_del_invalid_offcode":
+        admin_user = callback.from_user.id
+        if admin_user != ADMIN_ID:
+            return
+        offs = await get_all_off_codes()
+        for o in offs:
+            offid,code,percent,is_global,owner_telegram_id,max_uses,used_count,is_active,create_time,expire_time = o
+            is_valid, result = await validate_off_code(code,owner_telegram_id)
+            if not is_valid:
+                await delete_off_code_by_id(offid)
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🔙 بازگشت", callback_data="axtar_menu")
+            ]
+        ])
+        
+        await callback.message.edit_text("🧹 کدهای نامعتبر پاک شدند.",reply_markup=kb)
+             
 
     elif data == "axtar_menu":
         modir = callback.from_user.first_name
@@ -1794,12 +1991,17 @@ async def handle_menu_selection(callback: types.CallbackQuery):
 @router.message(F.text)
 async def handle_text_inputs(message: types.Message):
     user_id = message.from_user.id
-
-    if user_id not in user_choices:
+   
+    if user_id not in user_choices and user_id not in Admin_custom_plan:
+        
         return
-
-    action = user_choices[user_id].get("action")
-    offflow= user_choices[user_id].get("havecode")
+    if user_id in user_choices:
+        action = user_choices[user_id].get("action")
+        offflow= user_choices[user_id].get("havecode")
+    else:
+        action = Admin_custom_plan[user_id].get("action")
+        offflow =0
+    
     # Config name input
     if action == "buy":
         if offflow == 1:
@@ -1819,7 +2021,10 @@ async def handle_text_inputs(message: types.Message):
 
     if action =="admin_del_offcode":
         return await handle_admin_del_offcode_input(message)
-
+    
+    if action =="admin_custom_plan_name":
+        return await handle_admin_custom_plan_name_input(message)
+    
     if action == "admin_send_credit":
         return await handle_admin_send_credit_input(message)
 
@@ -2262,6 +2467,42 @@ async def handle_config_name(message: types.Message):
         "از چه روشی میخوای پرداخت کنی؟",
         parse_mode="HTML",
         reply_markup=Payment_keyboard()
+    )
+ 
+async def handle_admin_custom_plan_name_input(message: types.Message):
+    user_id = message.from_user.id
+    if user_id not in Admin_custom_plan:
+        return  # هیچ انتخاب فعالی نداره
+    
+    co_name_valid = message.text.strip()
+    if not message.text:
+        await message.answer("⚠️ لطفاً فقط متن بنویس (اسم کانفیگ).")
+        return
+    elif not re.match(r'^[A-Za-z0-9]{3,}$', co_name_valid):
+        await message.answer("⚠️ لطفاً فقط از حروف و اعداد انگلیسی استفاده کن، بدون فاصله، خط یا هر چیز دیگه، و بیش تر از سه حرف.")
+        return
+    # ذخیره نام
+    Admin_custom_plan[user_id]["config_name"] = message.text.strip()
+
+    data = Admin_custom_plan[user_id]
+    duration = data["days"]
+    size = data["gb"]
+    name = data["config_name"]
+    
+    ki_bord = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🟢 تایید", callback_data="confirm_custom_config")],
+        [InlineKeyboardButton(text="❌ انصراف", callback_data="axtar_menu")]
+        ])
+    
+    await message.bot.delete_message(message.chat.id, message.message_id - 1)
+    await message.answer(
+        f"✅ نام کانفیگ: <b>{name}</b>\n"
+        f"⏱ مدت: {duration} روزه\n"
+        f"📦 حجم: {size} گیگ\n"
+        
+        "تایید بزنی کانفیگ رو تو پنل میسازم",
+        parse_mode="HTML",
+        reply_markup=ki_bord
     )
 
 async def handle_user_recharge(message: types.Message):
