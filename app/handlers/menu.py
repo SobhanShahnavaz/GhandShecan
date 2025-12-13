@@ -1931,18 +1931,9 @@ async def handle_menu_selection(callback: types.CallbackQuery):
         admin_user = callback.from_user.id
         if admin_user != ADMIN_ID:
             return
-        user_choices[admin_user] = {"action": "admin_add_offcode"}
+        user_choices[admin_user] = {"action": "admin_add_offcode", "step": 1}
         info = (
-            "لطفا اطلاعات زیر را بفرستید و بین آنها نقطه)(.) بگذارید.\n"
-            "متن کد،درصد تخفیف،عام یا خاص،تعداد دفعات،مهلت استفاده\n\n"
-            "<blockquote>توضیحات: متن فقط حروف انگلیسی،درصد فقط عدد،\n"
-            "اگر کد متعلق به فرد خاصی هست شناسه آن را در بخش عام یا خاص بودن بگذارید، در غیر اینصورت 0 بگذارید.\n"
-            "تعداد دفعات یعنی اینکه حداکثر چند کاربر میتوانند از کد استفاده کنند، به عبارت دیگر کد چند بار استفاده میشود.\n"
-            "برای مهلت استفاده هم مقدار ساعت بگذارید. مثلا اگر کد تا فردا همین ساعت باید فعال باشد 24 بگذارید.</blockquote>\n"
-            "مثالهای کلی از اینکه پیام باید چگونه باشد:\n"
-            "SHABYALDA.10.0.5.48\n"
-            "THISFORMMD.90.827895790.1.6\n"
-            "FASTTHREE.5.0.3.24\n"
+            "متن کد تخفیف را بنویسید(انگلیسی،بدون حرف اضافه)\n"
         )
         await callback.message.edit_text(info, reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[[InlineKeyboardButton(text="❌ لغو", callback_data="admin_manage_offcodes")]]
@@ -2136,39 +2127,84 @@ async def handle_admin_send_credit_input(message: types.Message):
 async def handle_admin_add_offcode_input(message:types.Message):
     user_id = message.from_user.id
     
-    try:
-        themessagetext = str(message.text)
-        Code = str(themessagetext.split(".")[0])
-        Percentage = int(themessagetext.split(".")[1])
-        Globality = int(themessagetext.split(".")[2])
-        Max_uses = int(themessagetext.split(".")[3])
-        ExpireHours = int(themessagetext.split(".")[4])
-    except:
-        await message.answer("❌ خطای پردازش متن. با دقت به فرمت دوباره بفرستید:")
+    state = user_choices[user_id]
+
+    step = state.get("step", 1)
+
+    # STEP 1 → read GB
+    if step == 1:
+        try:
+            Code = str(message.text)
+        except:
+            await message.bot.delete_message(message.chat.id, message.message_id - 1)
+            await message.answer("❌ خطای پردازش متن. با دقت به فرمت دوباره بفرستید:")
+            return
+
+        state["Code"] = Code
+        state["step"] = 2
+        await message.bot.delete_message(message.chat.id, message.message_id - 1)
+        await message.answer("⏳ درصد تخفیف را وارد کنید:")
         return
-    if Globality == 0:
+
+    if step == 2:
+        try:
+            Percentage = int(message.text)
+        except:
+            await message.answer("❌ درصد باید عدد باشد. دوباره وارد کنید:")
+            return
+
+        state["Percentage"] = Percentage
+        state["step"] = 3
+
+        await message.answer("تعداد دفعات را بفرستید:\n ℹ️ یعنی اینکه حداکثر چند کاربر میتوانند از کد استفاده کنند، به عبارت دیگر کد چند بار استفاده میشود.")
+        return
+    
+    if step == 3:
+        try:
+            Max_uses = int(message.text)
+        except:
+            await message.answer("❌ تعداد باید عدد باشد. دوباره وارد کنید:")
+            return
+
+        state["Max_uses"] = Max_uses
+        state["step"] = 4
+
+        await message.answer(
+            "مهلت استفاده را به ساعت بفرستید.\n"
+            "مثلا اگر کد تا فردا همین ساعت باید فعال باشد 24 بفرستید\n",
+            parse_mode="Markdown"
+        )
+        return
+    if step == 4:
+        try:
+            ExpireHours = int(message.text)
+        except:
+            await message.answer("❌ مهلت باید عدد باشد. دوباره وارد کنید:")
+            return
+
+        Code = state["Code"]
+        Percentage = state["Percentage"]
+        Max_uses = state["Max_uses"]
+        
         globality = 1
         code_owner = 0
-    else:
-        globality = 0
-        code_owner = Globality
-    Expire_timestamp = (tehran_now() + timedelta(hours=ExpireHours)).timestamp()
-    Expire_text = datetime.fromtimestamp(Expire_timestamp).strftime("%Y-%m-%d %H:%M:%S")
-    try:
-        await create_off_code(Code,Percentage,globality,code_owner,Max_uses,Expire_text)
+        Expire_timestamp = (tehran_now() + timedelta(hours=ExpireHours)).timestamp()
+        Expire_text = datetime.fromtimestamp(Expire_timestamp).strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            await create_off_code(Code,Percentage,globality,code_owner,Max_uses,Expire_text)
 
-    except:
+        except:
+            await message.bot.delete_message(message.chat.id, message.message_id - 1)
+            await message.answer("❌ خطای عملیات در پایگاه داده!")
+        user_choices.pop(user_id, None)
         await message.bot.delete_message(message.chat.id, message.message_id - 1)
-        await message.answer("❌ خطای عملیات در پایگاه داده!")
-    user_choices.pop(user_id, None)
-    await message.bot.delete_message(message.chat.id, message.message_id - 1)
-    await message.answer(
-            "✔ کد با موفقیت تنظیم شد.\n\n",
-            reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[[InlineKeyboardButton(text="🔙 بازگشت", callback_data="axtar_menu")]]
+        await message.answer(
+                "✔ کد با موفقیت تنظیم شد.\n\n",
+                reply_markup=InlineKeyboardMarkup(
+                    inline_keyboard=[[InlineKeyboardButton(text="🔙 بازگشت", callback_data="axtar_menu")]]
+                )
             )
-        )
-    return
+        return
 
 async def handle_admin_del_offcode_input(message:types.Message):
     user_id = message.from_user.id
